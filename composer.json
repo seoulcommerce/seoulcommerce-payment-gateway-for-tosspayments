@@ -1,0 +1,30 @@
+{
+	"name": "seoulcommerce/woocommerce-tosspayments",
+	"description": "SeoulCommerce TossPayments payment gateway for WooCommerce",
+	"type": "wordpress-plugin",
+	"license": "GPL-2.0-or-later",
+	"authors": [
+		{
+			"name": "seoulcommerce",
+			"email": "info@seoulcommerce.com"
+		}
+	],
+	"require": {
+		"php": ">=7.4"
+	},
+	"require-dev": {
+		"wp-coding-standards/wpcs": "^3.0",
+		"phpcompatibility/phpcompatibility-wp": "*",
+		"woocommerce/woocommerce-sniffs": "^0.1.0"
+	},
+	"scripts": {
+		"phpcs": "phpcs",
+		"phpcbf": "phpcbf"
+	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
+	}
+}
+

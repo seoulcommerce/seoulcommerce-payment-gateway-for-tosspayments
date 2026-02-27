@@ -1,0 +1,25 @@
+{
+  "name": "seoulcommerce-payment-gateway-for-tosspayments",
+  "version": "1.0.0",
+  "description": "SeoulCommerce payment gateway integration for TossPayments (WooCommerce)",
+  "scripts": {
+    "build": "wp-scripts build",
+    "start": "wp-scripts start",
+    "packages-update": "wp-scripts packages-update",
+    "build:zip": "npm run build && OUT_DIR=\"$PWD\" && BUILD_DIR=\"/tmp/seoulcommerce-tpg-build\" && SLUG=\"seoulcommerce-payment-gateway-for-tosspayments\" && ZIP_PATH=\"$OUT_DIR/${SLUG}.zip\" && rm -rf \"$BUILD_DIR\" && rm -f \"$ZIP_PATH\" && mkdir -p \"$BUILD_DIR/$SLUG\" && cp -R assets build includes languages \"$BUILD_DIR/$SLUG/\" && cp tosspayments-gateway-for-woocommerce.php readme.txt readme-ko_KR.txt \"$BUILD_DIR/$SLUG/\" && cd \"$BUILD_DIR\" && zip -r \"$ZIP_PATH\" \"$SLUG\" -q && rm -rf \"$BUILD_DIR\" && echo \"Done! Output: $ZIP_PATH\""
+  },
+  "keywords": [
+    "woocommerce",
+    "payment",
+    "gateway",
+    "tosspayments",
+    "seoulcommerce"
+  ],
+  "author": "seoulcommerce",
+  "license": "GPL-2.0-or-later",
+  "devDependencies": {
+    "@woocommerce/dependency-extraction-webpack-plugin": "^2.0.0",
+    "@wordpress/scripts": "^26.0.0"
+  }
+}
+

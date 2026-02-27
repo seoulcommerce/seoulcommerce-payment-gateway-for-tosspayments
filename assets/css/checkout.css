@@ -1,0 +1,41 @@
+/**
+ * TossPayments Checkout Styles
+ *
+ * @package WooCommerce_TossPayments
+ */
+
+/* Traditional Checkout - Payment Method Icon */
+.wc_payment_method label[for="payment_method_tosspayments"] img {
+	max-height: 24px;
+	width: auto;
+	vertical-align: middle;
+	margin-right: 8px;
+	display: inline-block;
+}
+
+/* Blocks Checkout - Payment Method Label */
+.wc-block-components-payment-method-label img {
+	max-height: 24px;
+	width: auto;
+	vertical-align: middle;
+}
+
+/* Make sure the logo doesn't get too large on mobile */
+@media (max-width: 768px) {
+	.wc_payment_method label[for="payment_method_tosspayments"] img,
+	.wc-block-components-payment-method-label img {
+		max-height: 20px;
+	}
+}
+
+/* Payment method description styling */
+.wc-block-components-payment-method-tosspayments {
+	padding: 8px 0;
+}
+
+.wc-block-components-payment-method-description {
+	font-size: 14px;
+	color: #666;
+	line-height: 1.5;
+}
+

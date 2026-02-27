@@ -1,0 +1,221 @@
+# Translation template for SeoulCommerce Payment Gateway for TossPayments
+# Copyright (C) 2024 SeoulCommerce
+# This file is distributed under the same license as the SeoulCommerce Payment Gateway for TossPayments plugin.
+msgid ""
+msgstr ""
+"Project-Id-Version: SeoulCommerce Payment Gateway for TossPayments 1.0.0\n"
+"Report-Msgid-Bugs-To: https://seoulcommerce.com\n"
+"POT-Creation-Date: 2024-12-05 12:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+#: woocommerce-tosspayments.php:96
+msgid "SeoulCommerce TossPayments requires WooCommerce to be installed and active."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:29
+msgid "SeoulCommerce TossPayments"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:30
+msgid "Accept card payments using TossPayments."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:78
+msgid "Enable/Disable"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:79
+msgid "Enable TossPayments"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:83
+msgid "Title"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:85
+msgid "This controls the title which the user sees during checkout."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:86
+msgid "Toss Payments"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:90
+msgid "Description"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:92
+msgid "This controls the description which the user sees during checkout."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:93
+msgid "Pay securely using Toss Payments."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:97
+msgid "Test Mode"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:99
+msgid "Enable test mode"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:100
+msgid "Enable this to use test API keys and sandbox environment."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:105
+msgid "Test Client Key"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:107
+msgid "Get your test API keys from TossPayments dashboard."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:112
+msgid "Test Secret Key"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:114
+msgid "Get your test secret key from TossPayments dashboard."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:119
+msgid "Live Client Key"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:121
+msgid "Get your live API keys from TossPayments dashboard."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:126
+msgid "Live Secret Key"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:128
+msgid "Get your live secret key from TossPayments dashboard."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:133
+msgid "Debug Mode"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:135
+msgid "Enable debug mode"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:136
+msgid "Log payment events for debugging."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:259
+#: assets/js/payment.js
+msgid "Order #%s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:272
+msgid "Order for %s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:385
+msgid "Order #%s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:421
+msgid "Processing payment..."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:422
+msgid "Payment failed. Please try again."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:441
+msgid "Payment verification failed."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:455
+msgid "Payment canceled or failed."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:475
+msgid "TossPayments payment approved. Payment Key: %1$s, TossPayments Order ID: %2$s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:547
+msgid "Payment canceled via webhook."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:573
+msgid "Payment completed via webhook."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:622
+msgid "Invalid refund amount."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:630
+msgid "Payment key not found. Cannot process refund."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:635
+msgid "Refund failed: %s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:666
+msgid "Order total mismatch. Cannot process refund."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:681
+msgid "Refund reason not specified"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:682
+msgid "%1$s refund of %2$s processed successfully via TossPayments. Reason: %3$s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:683
+msgid "Full"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:683
+msgid "Partial"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:709
+msgid "Refund failed: API error - %s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:714
+msgid "Refund failed: Network error."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:721
+msgid "Refund failed: Unknown error."
+msgstr ""
+
+#: includes/class-wc-tosspayments-gateway.php:728
+msgid "Order for %s"
+msgstr ""
+
+#: includes/class-wc-tosspayments-api.php:97
+msgid "API Error: %s"
+msgstr ""
+
+#: assets/js/payment.js
+msgid "Processing payment..."
+msgstr ""
+
+#: assets/js/payment.js
+msgid "Payment failed. Please try again."
+msgstr ""
+
+#: assets/js/payment.js
+msgid "Order #%s"
+msgstr ""
+

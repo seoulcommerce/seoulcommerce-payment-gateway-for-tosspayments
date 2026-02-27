@@ -1,0 +1,13 @@
+# Local build artifacts
+*.zip
+
+# Local workspace metadata
+*.code-workspace
+
+# Build helper scripts (internal use)
+build.sh
+build-*.sh
+quick-build.sh
+build-wordpress-org.sh
+
+node_modules
