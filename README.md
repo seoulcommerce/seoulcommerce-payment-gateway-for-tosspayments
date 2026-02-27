@@ -23,6 +23,7 @@ A WordPress plugin that integrates TossPayments payment gateway into WooCommerce
 - WooCommerce 8.0 or higher
 - PHP 7.4 or higher
 - TossPayments merchant account
+https://onboarding.tosspayments.com/registration/business-registration-number?utm_source=seoulwd&utm_medium=hosting&agencyCode=seoulwd
 
 ## Installation
 
@@ -80,7 +81,7 @@ composer run phpcbf
 ## Support
 
 For support, please visit:
-https://github.com/seoulcommerce/tosspayments-gateway-for-woocommerce/issues
+https://seoulcommerce.com
 
 ## License
 
