@@ -32,13 +32,13 @@ Note: This plugin is developed by SeoulCommerce.com
 * WordPress 6.0 or higher
 * WooCommerce 8.0 or higher
 * PHP 7.4 or higher
-* TossPayments merchant account
+* A TossPayments merchant account (required)
 
 = Installation =
 
-1. **🎯 IMPORTANT: Sign up for TossPayments with our special affiliate link to get preferential merchant rates:**
+1. **🎯 IMPORTANT: A TossPayments merchant account is required before using this plugin.**
+   Use the official onboarding link:
    https://onboarding.tosspayments.com/registration/business-registration-number?utm_source=seoulwd&utm_medium=hosting&agencyCode=seoulwd
-   (You'll get the lowest transaction fees and special SeoulCommerce benefits!)
 
 2. Upload the plugin files to the `/wp-content/plugins/tosspayments-gateway-for-woocommerce` directory, or install the plugin through the WordPress plugins screen directly.
 3. Activate the plugin through the 'Plugins' screen in WordPress.
@@ -49,7 +49,7 @@ Note: This plugin is developed by SeoulCommerce.com
 
 = Configuration =
 
-1. **First, sign up for TossPayments using our special link** (if you haven't already):
+1. **First, create your TossPayments merchant account (required)**:
    https://onboarding.tosspayments.com/registration/business-registration-number?utm_source=seoulwd&utm_medium=hosting&agencyCode=seoulwd
    
 2. Navigate to WooCommerce > Settings > Payments
