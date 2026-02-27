@@ -518,10 +518,11 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	 */
 	public function handle_webhook() {
 		// Get webhook data.
-		$body = file_get_contents( 'php://input' );
-		$data = json_decode( $body, true );
+		$body     = file_get_contents( 'php://input' );
+		$raw_data = json_decode( $body, true );
+		$data     = $this->sanitize_webhook_payload( $raw_data );
 
-		if ( empty( $data ) || ! is_array( $data ) ) {
+		if ( empty( $data ) ) {
 			status_header( 400 );
 			exit;
 		}
@@ -544,6 +545,33 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		status_header( 200 );
 		exit;
+	}
+
+	/**
+	 * Sanitize and validate webhook payload.
+	 *
+	 * @param mixed $raw_data Decoded webhook payload.
+	 * @return array Sanitized payload, or empty array when invalid.
+	 */
+	private function sanitize_webhook_payload( $raw_data ) {
+		if ( empty( $raw_data ) || ! is_array( $raw_data ) ) {
+			return array();
+		}
+
+		$sanitized = array(
+			'eventType' => '',
+			'data'      => array(),
+		);
+
+		if ( isset( $raw_data['eventType'] ) ) {
+			$sanitized['eventType'] = strtoupper( sanitize_text_field( (string) $raw_data['eventType'] ) );
+		}
+
+		if ( isset( $raw_data['data'] ) && is_array( $raw_data['data'] ) && isset( $raw_data['data']['paymentKey'] ) ) {
+			$sanitized['data']['paymentKey'] = sanitize_text_field( (string) $raw_data['data']['paymentKey'] );
+		}
+
+		return $sanitized;
 	}
 
 	/**

@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: SeoulCommerce Payment Gateway for TossPayments
- * Plugin URI: https://wordpress.org/plugins/seoulcommerce-payment-gateway-for-tosspayments
+ * Plugin URI: https://github.com/seoulcommerce/seoulcommerce-payment-gateway-for-tosspayments
  * Description: TossPayments payment gateway integration for WooCommerce. Supports card payments using TossPayments v2 API.
  * Version: 1.0.0
  * Author: seoulcommerce

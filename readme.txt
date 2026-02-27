@@ -5,6 +5,7 @@ Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
 Stable tag: 1.0.0
+
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -40,7 +41,7 @@ Note: This plugin is developed by SeoulCommerce.com
    Use the official onboarding link:
    https://onboarding.tosspayments.com/registration/business-registration-number?utm_source=seoulwd&utm_medium=hosting&agencyCode=seoulwd
 
-2. Upload the plugin files to the `/wp-content/plugins/tosspayments-gateway-for-woocommerce` directory, or install the plugin through the WordPress plugins screen directly.
+2. Upload the plugin files to the `/wp-content/plugins/seoulcommerce-payment-gateway-for-tosspayments` directory, or install the plugin through the WordPress plugins screen directly.
 3. Activate the plugin through the 'Plugins' screen in WordPress.
 4. Go to WooCommerce > Settings > Payments and configure TossPayments.
 5. Enter your TossPayments API keys (Client Key and Secret Key) from your TossPayments dashboard.
@@ -75,7 +76,39 @@ https://developers.tosspayments.com/
 = Support =
 
 For support, please visit:
-https://github.com/seoulcommerce/tosspayments-gateway-for-woocommerce/issues
+https://github.com/seoulcommerce/seoulcommerce-payment-gateway-for-tosspayments/issues
+
+= Source code for generated assets =
+
+This plugin includes generated build assets for WooCommerce Blocks:
+
+* Generated file: `build/blocks/frontend.js`
+* Human-readable source: `src/blocks/frontend.js`
+* Build config: `webpack.config.js`
+* Public source repository: https://github.com/seoulcommerce/seoulcommerce-payment-gateway-for-tosspayments
+
+Build steps:
+
+1. Run `npm install`
+2. Run `npm run build`
+
+= External services =
+
+This plugin relies on TossPayments services to process payments.
+
+1. **TossPayments JavaScript SDK** (`https://js.tosspayments.com/v2/standard`)
+   * Used to open the payment window during checkout.
+   * Data sent when customer starts payment: order ID, order name, amount, customer name/email/phone.
+2. **TossPayments Payments API** (`https://api.tosspayments.com/v1`)
+   * Used by the server to confirm/cancel payments and process refunds.
+   * Data sent from server: payment key, order ID, amount, refund reason (for cancellation/refund).
+3. **TossPayments merchant onboarding page** (`https://onboarding.tosspayments.com/...`)
+   * Used only when merchant/admin clicks signup/onboarding links in plugin settings/banner.
+
+Service provider: TossPayments.
+
+* Terms: https://pages.tosspayments.com/terms/user
+* Privacy: https://pages.tosspayments.com/terms/privacy/consent1/en/
 
 = Frequently Asked Questions =
 
@@ -129,5 +162,5 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 == Upgrade Notice ==
 
 = 1.0.0 =
-Initial release of SeoulCommerce TossPayments plugin. Start accepting secure card payments through TossPayments v2 API.
+Initial release of SeoulCommerce Payment Gateway for TossPayments. Start accepting secure card payments through TossPayments v2 API.
 
