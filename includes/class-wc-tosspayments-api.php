@@ -76,7 +76,8 @@ class SeoulCommerce_TPG_API {
 		}
 
 		$this->gateway->log( 'API Request: ' . $method . ' ' . $url );
-		$this->gateway->log( 'Request Body: ' . wp_json_encode( $args ) );
+		// SECURITY: Redact sensitive data from logs.
+		$this->gateway->log( 'Request Body: ' . $this->redact_sensitive_data( wp_json_encode( $args ) ) );
 
 		$response = wp_remote_request( $url, $request_args );
 
@@ -89,7 +90,8 @@ class SeoulCommerce_TPG_API {
 		$code = wp_remote_retrieve_response_code( $response );
 
 		$this->gateway->log( 'API Response Code: ' . $code );
-		$this->gateway->log( 'API Response Body: ' . $body );
+		// SECURITY: Redact sensitive data from response logs.
+		$this->gateway->log( 'API Response Body: ' . $this->redact_sensitive_data( $body ) );
 
 		$data = json_decode( $body, true );
 
@@ -99,6 +101,52 @@ class SeoulCommerce_TPG_API {
 		}
 
 		return $data;
+	}
+
+	/**
+	 * Redact sensitive data from logs.
+	 * 
+	 * SECURITY: Prevents PII and payment keys from appearing in logs.
+	 *
+	 * @param string $data Data to redact.
+	 * @return string Redacted data.
+	 */
+	private function redact_sensitive_data( $data ) {
+		if ( empty( $data ) ) {
+			return $data;
+		}
+		
+		$decoded = json_decode( $data, true );
+		if ( ! is_array( $decoded ) ) {
+			return $data;
+		}
+		
+		// Fields to redact.
+		$sensitive_fields = array(
+			'paymentKey',
+			'customerName',
+			'customerEmail',
+			'customerMobilePhone',
+			'billingEmail',
+			'billingPhone',
+			'cardNumber',
+			'cardCvc',
+			'accountNumber',
+			'customerKey',
+			'billingAddress',
+			'shippingAddress',
+		);
+		
+		array_walk_recursive(
+			$decoded,
+			function( &$value, $key ) use ( $sensitive_fields ) {
+				if ( in_array( $key, $sensitive_fields, true ) ) {
+					$value = '[REDACTED]';
+				}
+			}
+		);
+		
+		return wp_json_encode( $decoded );
 	}
 
 	/**

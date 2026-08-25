@@ -121,8 +121,8 @@
 				},
 				orderId: orderData.tosspayments_orderId,
 				orderName: orderData.orderName,
-				successUrl: this.returnUrl + '&order_id=' + this.orderId,
-				failUrl: this.returnUrl + '&order_id=' + this.orderId + '&fail=1',
+				successUrl: this.returnUrl + '&order_id=' + this.orderId + '&key=' + orderData.orderKey,
+				failUrl: this.returnUrl + '&order_id=' + this.orderId + '&fail=1&key=' + orderData.orderKey,
 				customerEmail: orderData.customerEmail,
 				customerName: orderData.customerName,
 				customerMobilePhone: orderData.customerMobilePhone,
@@ -168,8 +168,11 @@
 				return null;
 			}
 
+			// Get order key from server params (required for security).
+			const orderKey = seoulcommerceTpgParams.orderKey || '';
+
 			// Get customer info from server params or form fields
-			let customerEmail = wcTossPaymentsParams.customerEmail || $( '#billing_email' ).val() || 'customer@example.com';
+			let customerEmail = seoulcommerceTpgParams.customerEmail || $( '#billing_email' ).val() || 'customer@example.com';
 			let customerName = seoulcommerceTpgParams.customerName || '';
 			
 			// Build name from form if not provided
@@ -204,6 +207,7 @@
 				tosspayments_orderId: String( tosspayments_orderId ),
 				amount: parseInt( amount, 10 ),
 				orderName: String( orderName ),
+				orderKey: String( orderKey ),
 				customerEmail: String( customerEmail ),
 				customerName: String( customerName ).trim(),
 				customerMobilePhone: String( customerMobilePhone ).trim(),
@@ -243,7 +247,7 @@
 	// Initialize when document is ready
 	$( document ).ready( function() {
 		// Order-pay: PHP sets isOrderPayPage. Checkout: TossPayments selected.
-		const isOrderPayPage = wcTossPaymentsParams.isOrderPayPage;
+		const isOrderPayPage = seoulcommerceTpgParams.isOrderPayPage;
 		const isCheckoutPage = $( 'input[name="payment_method"][value="tosspayments"]' ).is( ':checked' ) || $( 'input#payment_method_tosspayments' ).is( ':checked' );
 
 		if ( isOrderPayPage || isCheckoutPage ) {

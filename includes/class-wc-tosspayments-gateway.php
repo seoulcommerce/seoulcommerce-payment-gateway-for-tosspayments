@@ -55,6 +55,13 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	public $secret_key_live;
 
 	/**
+	 * Webhook secret for signature verification.
+	 *
+	 * @var string
+	 */
+	public $webhook_secret;
+
+	/**
 	 * Debug mode flag.
 	 *
 	 * @var bool
@@ -95,7 +102,8 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		$this->secret_key_test      = $this->get_option( 'secret_key_test' );
 		$this->client_key_live      = $this->get_option( 'client_key_live' );
 		$this->secret_key_live      = $this->get_option( 'secret_key_live' );
-		$this->debug                = 'yes' === $this->get_option( 'debug', 'yes' );
+		$this->webhook_secret       = $this->get_option( 'webhook_secret' );
+		$this->debug                = 'yes' === $this->get_option( 'debug', 'no' );
 
 		// Get API instance.
 		$this->api = new SeoulCommerce_TPG_API( $this );
@@ -194,6 +202,13 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 				'title'       => __( 'Live Secret Key', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'type'        => 'password',
 				'description' => __( 'Get your API keys from your TossPayments account.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				'default'     => '',
+				'desc_tip'    => true,
+			),
+			'webhook_secret'  => array(
+				'title'       => __( 'Webhook Secret', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				'type'        => 'text',
+				'description' => __( 'Optional: Enter webhook secret from TossPayments dashboard for webhook signature verification. Highly recommended for security.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'default'     => '',
 				'desc_tip'    => true,
 			),
@@ -455,18 +470,41 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 	/**
 	 * Handle return from TossPayments.
+	 * 
+	 * SECURITY: Validates order ownership via order key to prevent unauthorized access.
 	 */
 	public function handle_return() {
 		$order_id = isset( $_GET['order_id'] ) ? absint( $_GET['order_id'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
 		if ( ! $order_id ) {
-			$order_id = WC()->session->get( 'seoulcommerce_tpg_order_id' );
+			$order_id = WC()->session ? WC()->session->get( 'seoulcommerce_tpg_order_id' ) : 0;
 		}
 
 		$order = wc_get_order( $order_id );
 
 		if ( ! $order ) {
 			wc_add_notice( __( 'Order not found.', 'seoulcommerce-payment-gateway-for-tosspayments' ), 'error' );
+			wp_safe_redirect( wc_get_checkout_url() );
+			exit;
+		}
+
+		// SECURITY: Verify order ownership using order key.
+		// Order key must be provided in URL or available in session.
+		$provided_key = isset( $_GET['key'] ) ? sanitize_text_field( wp_unslash( $_GET['key'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$order_key = $order->get_order_key();
+		
+		$key_valid = false;
+		if ( ! empty( $provided_key ) && hash_equals( $order_key, $provided_key ) ) {
+			$key_valid = true;
+		} elseif ( is_user_logged_in() && $order->get_customer_id() === get_current_user_id() ) {
+			$key_valid = true;
+		} elseif ( WC()->session && WC()->session->get( 'seoulcommerce_tpg_order_id' ) === $order_id ) {
+			$key_valid = true;
+		}
+		
+		if ( ! $key_valid ) {
+			$this->log( 'Unauthorized return URL access. Order ID: ' . $order_id );
+			wc_add_notice( __( 'Invalid order access.', 'seoulcommerce-payment-gateway-for-tosspayments' ), 'error' );
 			wp_safe_redirect( wc_get_checkout_url() );
 			exit;
 		}
@@ -515,12 +553,40 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 	/**
 	 * Handle webhook from TossPayments.
+	 * 
+	 * SECURITY: Verifies webhook signature to prevent fake payment confirmations.
 	 */
 	public function handle_webhook() {
 		// Get webhook data.
 		$body     = file_get_contents( 'php://input' );
 		$raw_data = json_decode( $body, true );
-		$data     = $this->sanitize_webhook_payload( $raw_data );
+		
+		// SECURITY: Verify webhook signature before processing.
+		if ( ! empty( $this->webhook_secret ) ) {
+			$signature_header = isset( $_SERVER['HTTP_X_TOSSPAYMENTS_SIGNATURE'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_TOSSPAYMENTS_SIGNATURE'] ) ) : '';
+			
+			if ( empty( $signature_header ) ) {
+				$this->log( 'Webhook rejected: Missing signature header' );
+				status_header( 401 );
+				exit;
+			}
+			
+			// Verify HMAC signature (TossPayments uses HMAC-SHA256).
+			$expected_signature = hash_hmac( 'sha256', $body, $this->webhook_secret );
+			
+			if ( ! hash_equals( $expected_signature, $signature_header ) ) {
+				$this->log( 'Webhook rejected: Invalid signature' );
+				status_header( 401 );
+				exit;
+			}
+			
+			$this->log( 'Webhook signature verified successfully' );
+		} else {
+			// Log warning if webhook secret is not configured.
+			$this->log( 'WARNING: Webhook secret not configured. Signature verification skipped. This is a security risk!' );
+		}
+		
+		$data = $this->sanitize_webhook_payload( $raw_data );
 
 		if ( empty( $data ) ) {
 			status_header( 400 );
@@ -532,7 +598,6 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		$event_type     = strtoupper( sanitize_text_field( (string) $event_type_raw ) );
 		$this->log( 'Webhook received. eventType=' . $event_type );
 
-		// Verify webhook signature if needed.
 		// Process webhook based on event type.
 		switch ( $event_type ) {
 			case 'PAYMENT_CONFIRMED':
@@ -762,11 +827,28 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 	/**
 	 * AJAX handler to get order details for blocks checkout.
+	 * 
+	 * SECURITY: This endpoint must verify order ownership to prevent IDOR attacks.
 	 */
 	public function ajax_get_order_details() {
 		// Verify nonce.
 		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'seoulcommerce-tpg' ) ) {
 			wp_send_json_error( array( 'message' => __( 'Security check failed', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
+		}
+
+		// Rate limiting: max 10 requests per minute per IP.
+		$ip = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
+		$rate_limit_key = 'tosspayments_rate_limit_' . md5( $ip );
+		$request_count = get_transient( $rate_limit_key );
+		
+		if ( false === $request_count ) {
+			set_transient( $rate_limit_key, 1, 60 );
+		} else {
+			if ( $request_count >= 10 ) {
+				$this->log( 'Rate limit exceeded for IP: ' . $ip );
+				wp_send_json_error( array( 'message' => __( 'Too many requests. Please try again later.', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
+			}
+			set_transient( $rate_limit_key, $request_count + 1, 60 );
 		}
 
 		// Get order ID.
@@ -781,19 +863,37 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			wp_send_json_error( array( 'message' => __( 'Order not found', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
 		}
 
-	// Build response data.
-	/* translators: %s: Order number */
-	$order_name_text = sprintf( __( 'Order #%s', 'seoulcommerce-payment-gateway-for-tosspayments' ), $order->get_order_number() );
-	
-	$data = array(
-		'order_id'        => $order->get_id(),
-		'amount'          => $order->get_total(),
-		'order_name'      => $order_name_text,
-		'customer_email'  => $order->get_billing_email(),
-		'customer_name'   => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
-		'customer_phone'  => $order->get_billing_phone(),
-		'return_url'      => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
-	);
+		// SECURITY: Verify order ownership to prevent IDOR.
+		// User must be logged in and own the order, OR order must be in active session.
+		$current_user_id = get_current_user_id();
+		$order_customer_id = $order->get_customer_id();
+		$session_order_id = WC()->session ? WC()->session->get( 'seoulcommerce_tpg_order_id' ) : 0;
+		
+		$is_owner = false;
+		if ( $current_user_id > 0 && $order_customer_id > 0 && $current_user_id === $order_customer_id ) {
+			$is_owner = true;
+		} elseif ( $session_order_id && absint( $session_order_id ) === $order_id ) {
+			$is_owner = true;
+		}
+		
+		if ( ! $is_owner ) {
+			$this->log( 'Unauthorized order access attempt. Order ID: ' . $order_id . ', User ID: ' . $current_user_id );
+			wp_send_json_error( array( 'message' => __( 'Unauthorized access', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
+		}
+
+		// Build response data.
+		/* translators: %s: Order number */
+		$order_name_text = sprintf( __( 'Order #%s', 'seoulcommerce-payment-gateway-for-tosspayments' ), $order->get_order_number() );
+		
+		$data = array(
+			'order_id'        => $order->get_id(),
+			'amount'          => $order->get_total(),
+			'order_name'      => $order_name_text,
+			'customer_email'  => $order->get_billing_email(),
+			'customer_name'   => trim( $order->get_billing_first_name() . ' ' . $order->get_billing_last_name() ),
+			'customer_phone'  => $order->get_billing_phone(),
+			'return_url'      => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
+		);
 
 		wp_send_json_success( $data );
 	}
