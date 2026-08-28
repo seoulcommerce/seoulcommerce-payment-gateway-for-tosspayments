@@ -296,7 +296,10 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		// Mark order as pending payment.
 		$order->update_status( 'pending', __( 'Awaiting TossPayments payment', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
-		
+
+		// Store TossPayments order ID for webhook lookup before payment completes.
+		$order->update_meta_data( '_tosspayments_order_id', $this->get_tosspayments_order_id( $order_id ) );
+
 		// Ensure order is marked as needing payment.
 		$order->set_date_paid( null );
 		$order->save();
@@ -444,7 +447,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 				'checkoutUrl'          => wc_get_checkout_url(),
 				'returnUrl'            => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
 				'ajaxUrl'              => admin_url( 'admin-ajax.php' ),
-				'nonce'           => wp_create_nonce( 'seoulcommerce-tpg' ),
+				'nonce'                => $order_id ? wp_create_nonce( $this->get_order_nonce_action( $order_id ) ) : '',
 				'i18n'            => array(
 					'processing' => __( 'Processing payment...', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 					'error'      => __( 'Payment failed. Please try again.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
@@ -532,13 +535,14 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		$event_type     = strtoupper( sanitize_text_field( (string) $event_type_raw ) );
 		$this->log( 'Webhook received. eventType=' . $event_type );
 
-		// Verify webhook signature if needed.
-		// Process webhook based on event type.
+		// General payment webhooks have no signature header; re-verify via TossPayments API.
 		switch ( $event_type ) {
 			case 'PAYMENT_CONFIRMED':
+			case 'PAYMENT_STATUS_CHANGED':
 				$this->handle_payment_confirmed( $data );
 				break;
 			case 'PAYMENT_CANCELED':
+			case 'CANCEL_STATUS_CHANGED':
 				$this->handle_payment_canceled( $data );
 				break;
 		}
@@ -567,8 +571,19 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			$sanitized['eventType'] = strtoupper( sanitize_text_field( (string) $raw_data['eventType'] ) );
 		}
 
-		if ( isset( $raw_data['data'] ) && is_array( $raw_data['data'] ) && isset( $raw_data['data']['paymentKey'] ) ) {
-			$sanitized['data']['paymentKey'] = sanitize_text_field( (string) $raw_data['data']['paymentKey'] );
+		if ( isset( $raw_data['data'] ) && is_array( $raw_data['data'] ) ) {
+			if ( isset( $raw_data['data']['paymentKey'] ) ) {
+				$sanitized['data']['paymentKey'] = sanitize_text_field( (string) $raw_data['data']['paymentKey'] );
+			}
+			if ( isset( $raw_data['data']['orderId'] ) ) {
+				$sanitized['data']['orderId'] = sanitize_text_field( (string) $raw_data['data']['orderId'] );
+			}
+			if ( isset( $raw_data['data']['status'] ) ) {
+				$sanitized['data']['status'] = strtoupper( sanitize_text_field( (string) $raw_data['data']['status'] ) );
+			}
+			if ( isset( $raw_data['data']['totalAmount'] ) ) {
+				$sanitized['data']['totalAmount'] = floatval( $raw_data['data']['totalAmount'] );
+			}
 		}
 
 		return $sanitized;
@@ -588,7 +603,25 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		if ( '' === $payment_key ) {
 			return;
 		}
-		$order_id    = $this->get_order_id_by_payment_key( $payment_key );
+
+		$payment = $this->api->get_payment( $payment_key );
+		if ( is_wp_error( $payment ) ) {
+			$this->log( 'Webhook payment verification failed: ' . $payment->get_error_message() );
+			return;
+		}
+
+		if ( empty( $payment['status'] ) || 'DONE' !== strtoupper( (string) $payment['status'] ) ) {
+			$this->log( 'Webhook ignored: payment status is not DONE.' );
+			return;
+		}
+
+		$order_id = $this->get_order_id_by_payment_key( $payment_key );
+		if ( ! $order_id && ! empty( $payment['orderId'] ) ) {
+			$order_id = $this->get_order_id_by_tosspayments_order_id( sanitize_text_field( (string) $payment['orderId'] ) );
+		}
+		if ( ! $order_id && ! empty( $data['data']['orderId'] ) ) {
+			$order_id = $this->get_order_id_by_tosspayments_order_id( sanitize_text_field( (string) $data['data']['orderId'] ) );
+		}
 
 		if ( ! $order_id ) {
 			return;
@@ -596,6 +629,13 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		$order = wc_get_order( $order_id );
 		if ( ! $order ) {
+			return;
+		}
+
+		$verified_amount = isset( $payment['totalAmount'] ) ? floatval( $payment['totalAmount'] ) : 0;
+		$order_amount    = floatval( $order->get_total() );
+		if ( $verified_amount <= 0 || abs( $verified_amount - $order_amount ) > 0.01 ) {
+			$this->log( 'Webhook amount mismatch for order #' . $order_id );
 			return;
 		}
 
@@ -619,7 +659,25 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		if ( '' === $payment_key ) {
 			return;
 		}
-		$order_id    = $this->get_order_id_by_payment_key( $payment_key );
+
+		$payment = $this->api->get_payment( $payment_key );
+		if ( is_wp_error( $payment ) ) {
+			$this->log( 'Webhook cancel verification failed: ' . $payment->get_error_message() );
+			return;
+		}
+
+		if ( empty( $payment['status'] ) || ! in_array( strtoupper( (string) $payment['status'] ), array( 'CANCELED', 'PARTIAL_CANCELED' ), true ) ) {
+			$this->log( 'Webhook ignored: payment status is not canceled.' );
+			return;
+		}
+
+		$order_id = $this->get_order_id_by_payment_key( $payment_key );
+		if ( ! $order_id && ! empty( $payment['orderId'] ) ) {
+			$order_id = $this->get_order_id_by_tosspayments_order_id( sanitize_text_field( (string) $payment['orderId'] ) );
+		}
+		if ( ! $order_id && ! empty( $data['data']['orderId'] ) ) {
+			$order_id = $this->get_order_id_by_tosspayments_order_id( sanitize_text_field( (string) $data['data']['orderId'] ) );
+		}
 
 		if ( ! $order_id ) {
 			return;
@@ -653,6 +711,81 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		if ( ! empty( $order_ids ) ) {
 			return absint( $order_ids[0] );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Get order ID by TossPayments order ID stored in order meta.
+	 *
+	 * @param string $tosspayments_order_id TossPayments order ID.
+	 * @return int|false
+	 */
+	private function get_order_id_by_tosspayments_order_id( $tosspayments_order_id ) {
+		if ( '' === $tosspayments_order_id ) {
+			return false;
+		}
+
+		$order_ids = wc_get_orders(
+			array(
+				'limit'        => 1,
+				'return'       => 'ids',
+				'meta_key'     => '_tosspayments_order_id', // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_key
+				'meta_value'   => $tosspayments_order_id, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value
+				'meta_compare' => '=',
+			)
+		);
+
+		if ( ! empty( $order_ids ) ) {
+			return absint( $order_ids[0] );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Nonce action string bound to a specific order.
+	 *
+	 * @param int $order_id Order ID.
+	 * @return string
+	 */
+	private function get_order_nonce_action( $order_id ) {
+		return 'seoulcommerce-tpg-order-' . absint( $order_id );
+	}
+
+	/**
+	 * Verify the current request may access the given order.
+	 *
+	 * @param WC_Order $order Order object.
+	 * @return bool
+	 */
+	private function verify_order_access( $order ) {
+		if ( ! $order ) {
+			return false;
+		}
+
+		$order_id = $order->get_id();
+
+		if ( is_user_logged_in() ) {
+			$customer_id = (int) $order->get_customer_id();
+			if ( $customer_id && (int) get_current_user_id() === $customer_id ) {
+				return true;
+			}
+		}
+
+		if ( isset( $_POST['order_key'] ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			$order_key = sanitize_text_field( wp_unslash( $_POST['order_key'] ) ); // phpcs:ignore WordPress.Security.NonceVerification.Missing
+			if ( hash_equals( $order->get_order_key(), $order_key ) ) {
+				return true;
+			}
+		}
+
+		if ( WC()->session ) {
+			$session_order_id = absint( WC()->session->get( 'seoulcommerce_tpg_order_id' ) );
+			if ( $session_order_id && $session_order_id === $order_id ) {
+				return true;
+			}
 		}
 
 		return false;
@@ -764,12 +897,6 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	 * AJAX handler to get order details for blocks checkout.
 	 */
 	public function ajax_get_order_details() {
-		// Verify nonce.
-		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), 'seoulcommerce-tpg' ) ) {
-			wp_send_json_error( array( 'message' => __( 'Security check failed', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
-		}
-
-		// Get order ID.
 		if ( ! isset( $_POST['order_id'] ) ) {
 			wp_send_json_error( array( 'message' => __( 'Order ID missing', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
 		}
@@ -779,6 +906,14 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		if ( ! $order ) {
 			wp_send_json_error( array( 'message' => __( 'Order not found', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
+		}
+
+		if ( ! isset( $_POST['nonce'] ) || ! wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['nonce'] ) ), $this->get_order_nonce_action( $order_id ) ) ) {
+			wp_send_json_error( array( 'message' => __( 'Security check failed', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
+		}
+
+		if ( ! $this->verify_order_access( $order ) ) {
+			wp_send_json_error( array( 'message' => __( 'Unauthorized', 'seoulcommerce-payment-gateway-for-tosspayments' ) ) );
 		}
 
 	// Build response data.

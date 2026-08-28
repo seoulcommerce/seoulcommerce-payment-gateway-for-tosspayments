@@ -1,6 +1,6 @@
 {
   "name": "seoulcommerce-payment-gateway-for-tosspayments",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "description": "SeoulCommerce payment gateway integration for TossPayments (WooCommerce)",
   "scripts": {
     "build": "wp-scripts build",

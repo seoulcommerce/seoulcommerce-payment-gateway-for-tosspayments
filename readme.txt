@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, tosspayments, credit card, korea
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.0
+Stable tag: 1.0.2
 
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -102,7 +102,7 @@ This plugin relies on TossPayments services to process payments.
 2. **TossPayments Payments API** (`https://api.tosspayments.com/v1`)
    * Used by the server to confirm/cancel payments and process refunds.
    * Data sent from server: payment key, order ID, amount, refund reason (for cancellation/refund).
-3. **TossPayments merchant onboarding page** (`https://onboarding.tosspayments.com/...`)
+3. **TossPayments merchant onboarding page** (`https://onboarding.tosspayments.com/registration/business-registration-number?utm_source=seoulwd&utm_medium=hosting&agencyCode=seoulwd`)
    * Used only when merchant/admin clicks signup/onboarding links in plugin settings/banner.
 
 Service provider: TossPayments.
@@ -141,6 +141,15 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 
 == Changelog ==
 
+= 1.0.2 - 2026-08-28 =
+* Security improvements to checkout and payment data handling.
+* Hardened webhook verification.
+
+= 1.0.1 - 2026-03-05 =
+* Fixed frontend JavaScript variable mismatch causing `wcTossPaymentsParams is not defined` errors.
+* Updated plugin/readme URLs and external-service documentation for WordPress.org compliance.
+* Improved webhook payload sanitization handling.
+
 = 1.0.0 - 2025-12-05 =
 * Initial release
 * TossPayments v2 API integration with latest standards
@@ -160,6 +169,12 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 * Responsive design for mobile devices
 
 == Upgrade Notice ==
+
+= 1.0.2 =
+Security release with improvements to checkout and webhook handling.
+
+= 1.0.1 =
+Fixes a checkout JavaScript variable mismatch and improves WordPress.org compliance documentation.
 
 = 1.0.0 =
 Initial release of SeoulCommerce Payment Gateway for TossPayments. Start accepting secure card payments through TossPayments v2 API.

@@ -140,7 +140,7 @@
 				.catch( ( error ) => {
 					this.setLoadingState( false );
 					console.error( 'TossPayments payment error:', error );
-					alert( error.message || wcTossPaymentsParams.i18n.error );
+					alert( error.message || seoulcommerceTpgParams.i18n.error );
 				} );
 
 			return true;
@@ -169,7 +169,7 @@
 			}
 
 			// Get customer info from server params or form fields
-			let customerEmail = wcTossPaymentsParams.customerEmail || $( '#billing_email' ).val() || 'customer@example.com';
+			let customerEmail = seoulcommerceTpgParams.customerEmail || $( '#billing_email' ).val() || 'customer@example.com';
 			let customerName = seoulcommerceTpgParams.customerName || '';
 			
 			// Build name from form if not provided
@@ -243,7 +243,7 @@
 	// Initialize when document is ready
 	$( document ).ready( function() {
 		// Order-pay: PHP sets isOrderPayPage. Checkout: TossPayments selected.
-		const isOrderPayPage = wcTossPaymentsParams.isOrderPayPage;
+		const isOrderPayPage = seoulcommerceTpgParams.isOrderPayPage;
 		const isCheckoutPage = $( 'input[name="payment_method"][value="tosspayments"]' ).is( ':checked' ) || $( 'input#payment_method_tosspayments' ).is( ':checked' );
 
 		if ( isOrderPayPage || isCheckoutPage ) {

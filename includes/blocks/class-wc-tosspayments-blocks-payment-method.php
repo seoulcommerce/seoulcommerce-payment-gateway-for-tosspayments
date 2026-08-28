@@ -144,8 +144,6 @@ final class SeoulCommerce_TPG_Blocks_Payment_Method extends AbstractPaymentMetho
 			'supports'    => array( 'products' ),
 			'clientKey'   => $client_key,
 			'returnUrl'   => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
-			'ajaxUrl'     => admin_url( 'admin-ajax.php' ),
-			'nonce'       => wp_create_nonce( 'seoulcommerce-tpg' ),
 			'icon'        => SEOULCOMMERCE_TPG_PLUGIN_URL . 'assets/TossPayments_Logo_Primary.png',
 		);
 	}
