@@ -122,11 +122,14 @@ class SeoulCommerce_TPG_API {
 			$error_message = isset( $data['message'] ) ? $data['message'] : __( 'API request failed.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			
 			// Provide clearer error messages for common cases.
-			if ( 'NOT_ALLOWED_CANCEL_AMOUNT' === $error_code ) {
+			// Error codes reference: https://docs.tosspayments.com/reference/error-codes
+			if ( 'NOT_CANCELABLE_AMOUNT' === $error_code ) {
 				$error_message = __( 'The refund amount exceeds the remaining cancelable balance.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			} elseif ( 'ALREADY_CANCELED_PAYMENT' === $error_code ) {
 				$error_message = __( 'This payment has already been fully canceled.', 'seoulcommerce-payment-gateway-for-tosspayments' );
-			} elseif ( 'FORBIDDEN_REQUEST' === $error_code || 'UNAUTHORIZED' === $error_code ) {
+			} elseif ( 'NOT_FOUND_PAYMENT' === $error_code ) {
+				$error_message = __( 'Payment not found. The payment key may be invalid.', 'seoulcommerce-payment-gateway-for-tosspayments' );
+			} elseif ( in_array( $error_code, array( 'FORBIDDEN_REQUEST', 'UNAUTHORIZED_KEY' ), true ) ) {
 				$error_message = __( 'Authentication failed. Please check your TossPayments API keys and IP allowlist settings.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			}
 			
@@ -166,7 +169,12 @@ class SeoulCommerce_TPG_API {
 	 * @return array|WP_Error
 	 */
 	public function cancel_payment( $payment_key, $amount = null, $reason = '', $idempotency_key = '' ) {
-		$endpoint = '/payments/' . $payment_key . '/cancel';
+		// Validate and encode payment key for URL.
+		if ( empty( $payment_key ) || ! is_string( $payment_key ) ) {
+			return new WP_Error( 'invalid_payment_key', __( 'Invalid payment key.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+		}
+		$encoded_key = rawurlencode( $payment_key );
+		$endpoint = '/payments/' . $encoded_key . '/cancel';
 
 		$args = array();
 
@@ -208,7 +216,12 @@ class SeoulCommerce_TPG_API {
 	 * @return array|WP_Error
 	 */
 	public function get_payment( $payment_key ) {
-		$endpoint = '/payments/' . $payment_key;
+		// Validate and encode payment key for URL.
+		if ( empty( $payment_key ) || ! is_string( $payment_key ) ) {
+			return new WP_Error( 'invalid_payment_key', __( 'Invalid payment key.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+		}
+		$encoded_key = rawurlencode( $payment_key );
+		$endpoint = '/payments/' . $encoded_key;
 		return $this->request( $endpoint, array(), 'GET' );
 	}
 }

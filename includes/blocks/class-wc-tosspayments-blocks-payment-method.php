@@ -138,14 +138,14 @@ final class SeoulCommerce_TPG_Blocks_Payment_Method extends AbstractPaymentMetho
 				: ( isset( $this->settings['client_key_live'] ) ? $this->settings['client_key_live'] : '' );
 		}
 
-	return array(
-		'title'       => $this->get_setting( 'title' ),
-		'description' => $this->get_setting( 'description' ),
-		'supports'    => array( 'products', 'refunds' ),
-		'clientKey'   => $client_key,
-		'returnUrl'   => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
-		'icon'        => SEOULCOMMERCE_TPG_PLUGIN_URL . 'assets/TossPayments_Logo_Primary.png',
-	);
-}
+		return array(
+			'title'       => $this->get_setting( 'title' ),
+			'description' => $this->get_setting( 'description' ),
+			'supports'    => array( 'products' ),
+			'clientKey'   => $client_key,
+			'returnUrl'   => add_query_arg( 'wc-api', 'seoulcommerce_tpg_return', home_url( '/' ) ),
+			'icon'        => SEOULCOMMERCE_TPG_PLUGIN_URL . 'assets/TossPayments_Logo_Primary.png',
+		);
+	}
 }
 

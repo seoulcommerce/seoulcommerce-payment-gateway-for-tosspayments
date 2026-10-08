@@ -660,6 +660,24 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
+		// Deduplicate on webhook transmission ID if present.
+		if ( isset( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) ) {
+			$transmission_id = sanitize_text_field( wp_unslash( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) );
+			$processed_transmissions = get_option( 'tosspayments_processed_webhooks', array() );
+			
+			if ( in_array( $transmission_id, $processed_transmissions, true ) ) {
+				$this->log( 'Webhook ignored: already processed transmission ID ' . $transmission_id );
+				return;
+			}
+			
+			// Store transmission ID (keep last 100 to prevent unbounded growth).
+			$processed_transmissions[] = $transmission_id;
+			if ( count( $processed_transmissions ) > 100 ) {
+				$processed_transmissions = array_slice( $processed_transmissions, -100 );
+			}
+			update_option( 'tosspayments_processed_webhooks', $processed_transmissions, false );
+		}
+
 		// Verify payment status by fetching from TossPayments API.
 		$payment = $this->api->get_payment( $payment_key );
 		if ( is_wp_error( $payment ) ) {
@@ -692,65 +710,136 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
-		// Get cancellation details.
+		// Get our known cancel transactionKeys (from admin refunds we initiated).
+		$known_cancel_keys = $order->get_meta( '_tosspayments_cancel_keys' );
+		if ( ! is_array( $known_cancel_keys ) ) {
+			$known_cancel_keys = array();
+		}
+
+		// Walk through the payment.cancels array to reconcile.
+		$cancels = isset( $payment['cancels'] ) && is_array( $payment['cancels'] ) ? $payment['cancels'] : array();
 		$total_amount = isset( $payment['totalAmount'] ) ? floatval( $payment['totalAmount'] ) : 0;
 		$canceled_amount = isset( $payment['canceledAmount'] ) ? floatval( $payment['canceledAmount'] ) : 0;
 		$balance_amount = isset( $payment['balanceAmount'] ) ? floatval( $payment['balanceAmount'] ) : 0;
 
-		// Check if this webhook is for a recent admin refund (within last 60 seconds).
-		// If so, skip processing to avoid duplicate actions.
-		$last_refund_time = $order->get_meta( '_tosspayments_last_refund_time' );
-		if ( $last_refund_time && ( time() - intval( $last_refund_time ) ) < 60 ) {
-			$this->log( sprintf(
-				'Webhook ignored for order #%s: Recent admin refund detected (within 60s), skipping to avoid duplicate processing',
-				$order_id
-			) );
-			return;
-		}
-
-		$is_fully_canceled = ( 'CANCELED' === $payment_status || $balance_amount <= 0.01 );
-
 		$this->log( sprintf(
-			'Processing cancel webhook for order #%s: Status=%s, Total=%s, Canceled=%s, Balance=%s, IsFullyRefunded=%s',
+			'Processing cancel webhook for order #%s: Status=%s, Total=%s, Canceled=%s, Balance=%s, CancelsCount=%d',
 			$order_id,
 			$payment_status,
 			$total_amount,
 			$canceled_amount,
 			$balance_amount,
-			$is_fully_canceled ? 'yes' : 'no'
+			count( $cancels )
 		) );
 
-		if ( $is_fully_canceled ) {
-			// Full cancellation - update order status to refunded if not already.
-			if ( ! $order->has_status( array( 'refunded', 'cancelled' ) ) ) {
-				$order->update_status( 
-					'refunded', 
+		// Process each cancel in the array.
+		foreach ( $cancels as $cancel ) {
+			if ( empty( $cancel['transactionKey'] ) ) {
+				continue;
+			}
+
+			$transaction_key = $cancel['transactionKey'];
+			$cancel_amount = isset( $cancel['cancelAmount'] ) ? floatval( $cancel['cancelAmount'] ) : 0;
+			$cancel_reason = isset( $cancel['cancelReason'] ) ? sanitize_text_field( $cancel['cancelReason'] ) : '';
+
+			// Skip if we already know about this cancel (we initiated it from admin).
+			if ( in_array( $transaction_key, $known_cancel_keys, true ) ) {
+				$this->log( sprintf(
+					'Skipping cancel transactionKey=%s (initiated by admin)',
+					$transaction_key
+				) );
+				continue;
+			}
+
+			// This is a dashboard cancel - check if we've already processed it.
+			$processed_dashboard_cancels = $order->get_meta( '_tosspayments_processed_dashboard_cancels' );
+			if ( ! is_array( $processed_dashboard_cancels ) ) {
+				$processed_dashboard_cancels = array();
+			}
+
+			if ( in_array( $transaction_key, $processed_dashboard_cancels, true ) ) {
+				$this->log( sprintf(
+					'Skipping cancel transactionKey=%s (already processed)',
+					$transaction_key
+				) );
+				continue;
+			}
+
+			// This is a new dashboard cancel - create a WooCommerce refund record.
+			$this->log( sprintf(
+				'Processing dashboard cancel: transactionKey=%s, amount=%s, reason=%s',
+				$transaction_key,
+				$cancel_amount,
+				$cancel_reason
+			) );
+
+			// Create WooCommerce refund with refund_payment => false (already refunded at gateway).
+			$refund = wc_create_refund(
+				array(
+					'order_id'       => $order_id,
+					'amount'         => $cancel_amount,
+					'reason'         => sprintf(
+						/* translators: %s: Cancel reason from TossPayments */
+						__( 'Refunded in TossPayments merchant dashboard: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						$cancel_reason
+					),
+					'refund_payment' => false, // Already refunded at gateway.
+				)
+			);
+
+			if ( is_wp_error( $refund ) ) {
+				$this->log( 'Failed to create WC refund for dashboard cancel: ' . $refund->get_error_message() );
+				$order->add_order_note(
 					sprintf(
-						/* translators: %s: Canceled amount */
-						__( 'Payment fully canceled in TossPayments merchant dashboard. Canceled amount: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
-						wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) )
+						/* translators: 1: Cancel amount, 2: Error message */
+						__( 'Dashboard refund detected (%1$s) but failed to create WC refund record: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						wc_price( $cancel_amount, array( 'currency' => $order->get_currency() ) ),
+						$refund->get_error_message()
 					)
 				);
 			} else {
-				// Already in final state, just add a note.
-				$order->add_order_note(
+				$this->log( sprintf(
+					'Created WC refund #%d for dashboard cancel',
+					$refund->get_id()
+				) );
+			}
+
+			// Mark this cancel as processed.
+			$processed_dashboard_cancels[] = $transaction_key;
+			$order->update_meta_data( '_tosspayments_processed_dashboard_cancels', $processed_dashboard_cancels );
+		}
+
+		// After processing all cancels, update order status if appropriate.
+		$is_fully_canceled = ( 'CANCELED' === $payment_status || $balance_amount <= 0.01 );
+
+		if ( $is_fully_canceled ) {
+			// Full cancellation - let WooCommerce's own logic handle status transition to 'refunded'.
+			// This happens automatically when the order is fully refunded.
+			// Just add a note if not already in final state.
+			if ( ! $order->has_status( array( 'refunded', 'cancelled' ) ) ) {
+				// Force status update if WC hasn't caught up yet.
+				$order->update_status(
+					'refunded',
 					sprintf(
-						/* translators: %s: Canceled amount */
-						__( 'Webhook confirmed: Payment fully canceled in TossPayments. Canceled amount: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						/* translators: %s: Total canceled amount */
+						__( 'Payment fully canceled. Total refunded: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 						wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) )
 					)
 				);
 			}
 		} else {
-			// Partial cancellation - just add a note, don't change order status.
-			$order->add_order_note(
-				sprintf(
-					/* translators: 1: Canceled amount, 2: Remaining balance */
-					__( 'Partial refund processed in TossPayments merchant dashboard. Canceled: %1$s, Remaining balance: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
-					wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) ),
-					wc_price( $balance_amount, array( 'currency' => $order->get_currency() ) )
-				)
-			);
+			// Partial cancellation - order should stay in paid status.
+			// Add note only if this was a dashboard cancel we just processed.
+			if ( ! empty( $processed_dashboard_cancels ) ) {
+				$order->add_order_note(
+					sprintf(
+						/* translators: 1: Canceled amount, 2: Remaining balance */
+						__( 'Partial refund processed in TossPayments dashboard. Total refunded: %1$s, Remaining balance: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) ),
+						wc_price( $balance_amount, array( 'currency' => $order->get_currency() ) )
+					)
+				);
+			}
 		}
 
 		$order->save();
@@ -949,16 +1038,18 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		// Determine if this will be a full refund (based on remaining balance).
 		$will_be_full_refund = ( abs( $refund_amount - $balance_amount ) < 0.01 );
 
-		// Generate idempotency key based on order ID and refund amount to prevent duplicate refunds.
-		$idempotency_key = 'wc-refund-' . $order_id . '-' . md5( $payment_key . $refund_amount . time() );
+		// Generate deterministic idempotency key based on stable factors.
+		// This ensures identical refund attempts use the same key.
+		$idempotency_key = 'wc-refund-' . $order_id . '-' . md5( $payment_key . '-' . $refund_amount . '-' . $canceled_amount );
 
 		$this->log( sprintf(
-			'Processing %s refund for order #%s. Amount: %s (Balance: %s), Reason: %s',
+			'Processing %s refund for order #%s. Amount: %s (Balance: %s), Reason: %s, IdempotencyKey: %s',
 			$will_be_full_refund ? 'FULL' : 'PARTIAL',
 			$order_id,
 			$refund_amount,
 			$balance_amount,
-			$reason
+			$reason,
+			$idempotency_key
 		) );
 
 		// Call TossPayments API to cancel/refund payment.
@@ -984,12 +1075,26 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return new WP_Error( 'error', $error_message );
 		}
 
-		// Success! Add order note.
+		// Success! Store the transactionKey from the cancel response for webhook reconciliation.
+		if ( isset( $result['transactionKey'] ) ) {
+			$known_cancel_keys = $order->get_meta( '_tosspayments_cancel_keys' );
+			if ( ! is_array( $known_cancel_keys ) ) {
+				$known_cancel_keys = array();
+			}
+			$known_cancel_keys[] = $result['transactionKey'];
+			$order->update_meta_data( '_tosspayments_cancel_keys', $known_cancel_keys );
+		}
+
+		// Store refund metadata to help track webhook events.
+		$order->update_meta_data( '_tosspayments_last_refund_time', time() );
+		$order->save();
+
 		$this->log( sprintf(
-			'Refund successful for order #%s. Type: %s, Amount: %s',
+			'Refund successful for order #%s. Type: %s, Amount: %s, TransactionKey: %s',
 			$order_id,
 			$will_be_full_refund ? 'FULL' : 'PARTIAL',
-			$refund_amount
+			$refund_amount,
+			isset( $result['transactionKey'] ) ? $result['transactionKey'] : 'N/A'
 		) );
 		
 		$order->add_order_note(
@@ -1001,10 +1106,6 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 				$reason
 			)
 		);
-
-		// Store refund metadata to help track webhook events.
-		$order->update_meta_data( '_tosspayments_last_refund_time', time() );
-		$order->save();
 
 		return true;
 	}
