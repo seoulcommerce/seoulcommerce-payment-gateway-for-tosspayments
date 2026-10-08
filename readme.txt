@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, tosspayments, credit card, korea
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -140,6 +140,25 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 5. Refund interface in order management
 
 == Changelog ==
+
+= 1.0.3 - Unreleased =
+* **FIXED**: Refund amount validation now uses TossPayments' actual balanceAmount instead of comparing against order total.
+* **FIXED**: Multiple partial refunds that sum to the total now work correctly by using already-refunded amount in idempotency key.
+* **FIXED**: Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
+* **FIXED**: Refunds that exceed the remaining cancelable balance now fail with a clear error message.
+* **FIXED**: Payment keys are now properly URL-encoded in API endpoint paths.
+* **FIXED**: Full refunds now properly set order status to 'refunded' instead of 'cancelled'.
+* **FIXED**: Partial refunds now maintain the order in its paid status (processing/completed) as expected.
+* **ADDED**: Deterministic idempotency keys for refunds prevent accidental duplicate processing.
+* **ADDED**: Transaction key tracking to distinguish admin refunds from dashboard cancels in webhooks.
+* **ADDED**: Webhook deduplication via tosspayments-webhook-transmission-id header.
+* **ADDED**: Dashboard cancels now create WooCommerce refund records for accurate order totals.
+* **ADDED**: Webhook reconciliation walks payment.cancels[] array to identify cancel source.
+* **ADDED**: Enhanced error messages for TossPayments API failures (NOT_CANCELABLE_AMOUNT, ALREADY_CANCELED_PAYMENT, etc).
+* **ADDED**: Comprehensive PHPUnit test suite with GitHub Actions CI for PHP 7.4 and 8.3.
+* **IMPROVED**: Enhanced API logging that redacts sensitive data (secret keys, card numbers, payment keys).
+* **IMPROVED**: Webhook cancellation events from TossPayments merchant dashboard properly reconciled with WooCommerce.
+* **IMPROVED**: Order notes clearly distinguish between full and partial refunds with amount details.
 
 = 1.0.2 - 2026-08-28 =
 * Security improvements to checkout and payment data handling.
