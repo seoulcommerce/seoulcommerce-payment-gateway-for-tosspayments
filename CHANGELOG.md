@@ -5,6 +5,33 @@ All notable changes to SeoulCommerce TossPayments will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - Unreleased
+
+### Fixed
+- Refund button now appears and works correctly for orders placed via WooCommerce Blocks checkout.
+- Full refunds now properly set order status to 'refunded' instead of 'cancelled'.
+- Partial refunds now maintain the order in its paid status (processing/completed) as expected.
+- Multiple partial refunds that sum to the total now work correctly.
+- Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
+- Refunds that exceed the remaining cancelable balance now fail with a clear error message.
+- Refund amount validation now uses TossPayments' actual `balanceAmount` instead of comparing against order total.
+
+### Added
+- Idempotency support for refunds to prevent accidental duplicate processing.
+- Validation against TossPayments' remaining cancelable balance before processing refunds.
+- Enhanced error messages for common refund failures:
+  - Exceeded remaining balance
+  - Already fully canceled payment
+  - Authentication/authorization errors (API keys, IP allowlist)
+- Order notes now clearly distinguish between full and partial refunds with amount details.
+
+### Improved
+- Enhanced API request/response logging that redacts sensitive data (secret keys, card numbers).
+- Webhook cancellation events from TossPayments merchant dashboard are now properly reconciled.
+- Partial cancellation webhooks no longer incorrectly flip order status to 'cancelled'.
+- Full cancellation webhooks now set order to 'refunded' status appropriately.
+- Better handling of edge cases: second partial refund that completes the total, merchant dashboard cancellations.
+
 ## [1.0.2] - 2026-08-28
 
 ### Security

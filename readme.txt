@@ -4,7 +4,7 @@ Tags: woocommerce, payment gateway, tosspayments, credit card, korea
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 1.0.2
+Stable tag: 1.0.3
 
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -140,6 +140,20 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 5. Refund interface in order management
 
 == Changelog ==
+
+= 1.0.3 - Unreleased =
+* **FIXED**: Refund button now appears and works correctly for orders placed via WooCommerce Blocks checkout.
+* **FIXED**: Full refunds now properly set order status to 'refunded' instead of 'cancelled'.
+* **FIXED**: Partial refunds now maintain the order in its paid status (processing/completed) as expected.
+* **FIXED**: Multiple partial refunds that sum to the total now work correctly.
+* **FIXED**: Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
+* **FIXED**: Refunds that exceed the remaining cancelable balance now fail with a clear error message.
+* **FIXED**: Added idempotency support to prevent accidental duplicate refunds.
+* **IMPROVED**: Refund process now validates against TossPayments' actual remaining balance before processing.
+* **IMPROVED**: Better error messages for common refund failures (exceeded balance, already canceled, authentication issues).
+* **IMPROVED**: Enhanced logging that redacts sensitive data (API keys, card numbers).
+* **IMPROVED**: Order notes now clearly distinguish between full and partial refunds.
+* **IMPROVED**: Webhook cancellation events from the TossPayments merchant dashboard are now properly reconciled with WooCommerce order status.
 
 = 1.0.2 - 2026-08-28 =
 * Security improvements to checkout and payment data handling.

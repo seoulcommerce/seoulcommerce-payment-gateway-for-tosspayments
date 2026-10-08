@@ -55,15 +55,21 @@ class SeoulCommerce_TPG_API {
 	 * @param string $endpoint API endpoint.
 	 * @param array  $args Request arguments.
 	 * @param string $method HTTP method.
+	 * @param array  $extra_headers Additional headers.
 	 * @return array|WP_Error
 	 */
-	private function request( $endpoint, $args = array(), $method = 'POST' ) {
+	private function request( $endpoint, $args = array(), $method = 'POST', $extra_headers = array() ) {
 		$url = $this->api_url . $endpoint;
 
 		$headers = array(
 			'Authorization' => $this->get_auth_header(),
 			'Content-Type'  => 'application/json',
 		);
+
+		// Add any extra headers.
+		if ( ! empty( $extra_headers ) ) {
+			$headers = array_merge( $headers, $extra_headers );
+		}
 
 		$request_args = array(
 			'method'  => $method,
@@ -75,8 +81,13 @@ class SeoulCommerce_TPG_API {
 			$request_args['body'] = wp_json_encode( $args );
 		}
 
-		$this->gateway->log( 'API Request: ' . $method . ' ' . $url );
-		$this->gateway->log( 'Request Body: ' . wp_json_encode( $args ) );
+		// Log request without sensitive data.
+		$log_args = $args;
+		if ( isset( $log_args['paymentKey'] ) ) {
+			$log_args['paymentKey'] = substr( $log_args['paymentKey'], 0, 10 ) . '...';
+		}
+		$this->gateway->log( 'API Request: ' . $method . ' ' . $endpoint );
+		$this->gateway->log( 'Request Args: ' . wp_json_encode( $log_args ) );
 
 		$response = wp_remote_request( $url, $request_args );
 
@@ -89,13 +100,37 @@ class SeoulCommerce_TPG_API {
 		$code = wp_remote_retrieve_response_code( $response );
 
 		$this->gateway->log( 'API Response Code: ' . $code );
-		$this->gateway->log( 'API Response Body: ' . $body );
 
 		$data = json_decode( $body, true );
 
+		// Log response without sensitive data.
+		$log_data = $data;
+		if ( is_array( $log_data ) ) {
+			if ( isset( $log_data['secret'] ) ) {
+				$log_data['secret'] = '[REDACTED]';
+			}
+			if ( isset( $log_data['card'] ) && is_array( $log_data['card'] ) ) {
+				if ( isset( $log_data['card']['number'] ) ) {
+					$log_data['card']['number'] = '[REDACTED]';
+				}
+			}
+		}
+		$this->gateway->log( 'API Response: ' . wp_json_encode( $log_data ) );
+
 		if ( 200 !== $code ) {
+			$error_code = isset( $data['code'] ) ? $data['code'] : 'UNKNOWN_ERROR';
 			$error_message = isset( $data['message'] ) ? $data['message'] : __( 'API request failed.', 'seoulcommerce-payment-gateway-for-tosspayments' );
-			return new WP_Error( 'api_error', $error_message, $data );
+			
+			// Provide clearer error messages for common cases.
+			if ( 'NOT_ALLOWED_CANCEL_AMOUNT' === $error_code ) {
+				$error_message = __( 'The refund amount exceeds the remaining cancelable balance.', 'seoulcommerce-payment-gateway-for-tosspayments' );
+			} elseif ( 'ALREADY_CANCELED_PAYMENT' === $error_code ) {
+				$error_message = __( 'This payment has already been fully canceled.', 'seoulcommerce-payment-gateway-for-tosspayments' );
+			} elseif ( 'FORBIDDEN_REQUEST' === $error_code || 'UNAUTHORIZED' === $error_code ) {
+				$error_message = __( 'Authentication failed. Please check your TossPayments API keys and IP allowlist settings.', 'seoulcommerce-payment-gateway-for-tosspayments' );
+			}
+			
+			return new WP_Error( 'api_error', $error_message, array( 'code' => $error_code, 'data' => $data ) );
 		}
 
 		return $data;
@@ -127,16 +162,17 @@ class SeoulCommerce_TPG_API {
 	 * @param string $payment_key Payment key.
 	 * @param float  $amount Cancel amount (null for full cancel).
 	 * @param string $reason Cancel reason.
+	 * @param string $idempotency_key Idempotency key (optional).
 	 * @return array|WP_Error
 	 */
-	public function cancel_payment( $payment_key, $amount = null, $reason = '' ) {
+	public function cancel_payment( $payment_key, $amount = null, $reason = '', $idempotency_key = '' ) {
 		$endpoint = '/payments/' . $payment_key . '/cancel';
 
 		$args = array();
 
 		// Add cancel reason (required by TossPayments).
 		if ( empty( $reason ) ) {
-			$reason = 'Refund requested';
+			$reason = __( 'Refund requested', 'seoulcommerce-payment-gateway-for-tosspayments' );
 		}
 		$args['cancelReason'] = $reason;
 
@@ -144,19 +180,25 @@ class SeoulCommerce_TPG_API {
 		// If amount is null, TossPayments will process a full refund.
 		if ( null !== $amount ) {
 			// Convert to integer (TossPayments expects amount in KRW without decimals).
-			$args['cancelAmount'] = intval( $amount );
+			$args['cancelAmount'] = intval( round( $amount ) );
+		}
+
+		// Add idempotency key if provided.
+		$extra_headers = array();
+		if ( ! empty( $idempotency_key ) ) {
+			$extra_headers['Idempotency-Key'] = $idempotency_key;
 		}
 
 		$this->gateway->log( 
 			sprintf( 
-				'Canceling payment: Payment Key=%s, Amount=%s, Reason=%s',
-				$payment_key,
+				'Canceling payment: Amount=%s, Reason=%s, HasIdempotencyKey=%s',
 				null !== $amount ? $args['cancelAmount'] : 'full refund',
-				$reason
+				$reason,
+				! empty( $idempotency_key ) ? 'yes' : 'no'
 			)
 		);
 
-		return $this->request( $endpoint, $args );
+		return $this->request( $endpoint, $args, 'POST', $extra_headers );
 	}
 
 	/**

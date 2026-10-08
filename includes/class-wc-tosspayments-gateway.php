@@ -660,17 +660,20 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
+		// Verify payment status by fetching from TossPayments API.
 		$payment = $this->api->get_payment( $payment_key );
 		if ( is_wp_error( $payment ) ) {
 			$this->log( 'Webhook cancel verification failed: ' . $payment->get_error_message() );
 			return;
 		}
 
-		if ( empty( $payment['status'] ) || ! in_array( strtoupper( (string) $payment['status'] ), array( 'CANCELED', 'PARTIAL_CANCELED' ), true ) ) {
-			$this->log( 'Webhook ignored: payment status is not canceled.' );
+		$payment_status = isset( $payment['status'] ) ? strtoupper( (string) $payment['status'] ) : '';
+		if ( ! in_array( $payment_status, array( 'CANCELED', 'PARTIAL_CANCELED' ), true ) ) {
+			$this->log( 'Webhook ignored: payment status is not canceled (status: ' . $payment_status . ')' );
 			return;
 		}
 
+		// Find the order.
 		$order_id = $this->get_order_id_by_payment_key( $payment_key );
 		if ( ! $order_id && ! empty( $payment['orderId'] ) ) {
 			$order_id = $this->get_order_id_by_tosspayments_order_id( sanitize_text_field( (string) $payment['orderId'] ) );
@@ -680,6 +683,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		}
 
 		if ( ! $order_id ) {
+			$this->log( 'Webhook ignored: order not found for payment key' );
 			return;
 		}
 
@@ -688,7 +692,68 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
-		$order->update_status( 'cancelled', __( 'Payment canceled via webhook.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+		// Get cancellation details.
+		$total_amount = isset( $payment['totalAmount'] ) ? floatval( $payment['totalAmount'] ) : 0;
+		$canceled_amount = isset( $payment['canceledAmount'] ) ? floatval( $payment['canceledAmount'] ) : 0;
+		$balance_amount = isset( $payment['balanceAmount'] ) ? floatval( $payment['balanceAmount'] ) : 0;
+
+		// Check if this webhook is for a recent admin refund (within last 60 seconds).
+		// If so, skip processing to avoid duplicate actions.
+		$last_refund_time = $order->get_meta( '_tosspayments_last_refund_time' );
+		if ( $last_refund_time && ( time() - intval( $last_refund_time ) ) < 60 ) {
+			$this->log( sprintf(
+				'Webhook ignored for order #%s: Recent admin refund detected (within 60s), skipping to avoid duplicate processing',
+				$order_id
+			) );
+			return;
+		}
+
+		$is_fully_canceled = ( 'CANCELED' === $payment_status || $balance_amount <= 0.01 );
+
+		$this->log( sprintf(
+			'Processing cancel webhook for order #%s: Status=%s, Total=%s, Canceled=%s, Balance=%s, IsFullyRefunded=%s',
+			$order_id,
+			$payment_status,
+			$total_amount,
+			$canceled_amount,
+			$balance_amount,
+			$is_fully_canceled ? 'yes' : 'no'
+		) );
+
+		if ( $is_fully_canceled ) {
+			// Full cancellation - update order status to refunded if not already.
+			if ( ! $order->has_status( array( 'refunded', 'cancelled' ) ) ) {
+				$order->update_status( 
+					'refunded', 
+					sprintf(
+						/* translators: %s: Canceled amount */
+						__( 'Payment fully canceled in TossPayments merchant dashboard. Canceled amount: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) )
+					)
+				);
+			} else {
+				// Already in final state, just add a note.
+				$order->add_order_note(
+					sprintf(
+						/* translators: %s: Canceled amount */
+						__( 'Webhook confirmed: Payment fully canceled in TossPayments. Canceled amount: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+						wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) )
+					)
+				);
+			}
+		} else {
+			// Partial cancellation - just add a note, don't change order status.
+			$order->add_order_note(
+				sprintf(
+					/* translators: 1: Canceled amount, 2: Remaining balance */
+					__( 'Partial refund processed in TossPayments merchant dashboard. Canceled: %1$s, Remaining balance: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+					wc_price( $canceled_amount, array( 'currency' => $order->get_currency() ) ),
+					wc_price( $balance_amount, array( 'currency' => $order->get_currency() ) )
+				)
+			);
+		}
+
+		$order->save();
 	}
 
 	/**
@@ -799,14 +864,6 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	 * @param string $reason Refund reason.
 	 * @return bool|WP_Error
 	 */
-	/**
-	 * Process refund.
-	 *
-	 * @param int    $order_id Order ID.
-	 * @param float  $amount Refund amount.
-	 * @param string $reason Refund reason.
-	 * @return bool|WP_Error
-	 */
 	public function process_refund( $order_id, $amount = null, $reason = '' ) {
 		$order = wc_get_order( $order_id );
 
@@ -820,33 +877,95 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 
 		if ( ! $payment_key ) {
 			$this->log( 'Refund failed: Payment key not found for order #' . $order_id );
-			return new WP_Error( 'error', __( 'Payment key not found. Cannot process refund.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+			return new WP_Error( 'error', __( 'Payment key not found. This order cannot be refunded via TossPayments.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
 		}
+
+		// Get current payment status from TossPayments to verify refundable amount.
+		$payment_data = $this->api->get_payment( $payment_key );
+		if ( is_wp_error( $payment_data ) ) {
+			$error_message = $payment_data->get_error_message();
+			$this->log( 'Refund failed: Could not retrieve payment status - ' . $error_message );
+			return new WP_Error( 'error', sprintf(
+				/* translators: %s: Error message */
+				__( 'Could not verify payment status. %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				$error_message
+			) );
+		}
+
+		// Verify payment is in a refundable state.
+		$payment_status = isset( $payment_data['status'] ) ? strtoupper( $payment_data['status'] ) : '';
+		if ( ! in_array( $payment_status, array( 'DONE', 'PARTIAL_CANCELED' ), true ) ) {
+			$this->log( 'Refund failed: Payment status is ' . $payment_status . ', not refundable' );
+			return new WP_Error( 'error', sprintf(
+				/* translators: %s: Payment status */
+				__( 'This payment cannot be refunded. Current status: %s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				$payment_status
+			) );
+		}
+
+		// Get remaining cancelable amount from TossPayments.
+		$balance_amount = isset( $payment_data['balanceAmount'] ) ? floatval( $payment_data['balanceAmount'] ) : 0;
+		$total_amount = isset( $payment_data['totalAmount'] ) ? floatval( $payment_data['totalAmount'] ) : floatval( $order->get_total() );
+		$canceled_amount = isset( $payment_data['canceledAmount'] ) ? floatval( $payment_data['canceledAmount'] ) : 0;
+
+		$this->log( sprintf(
+			'Payment status for order #%s: Status=%s, Total=%s, Canceled=%s, Balance=%s',
+			$order_id,
+			$payment_status,
+			$total_amount,
+			$canceled_amount,
+			$balance_amount
+		) );
 
 		// TossPayments requires a refund reason.
 		if ( empty( $reason ) ) {
 			$reason = __( 'Refund requested', 'seoulcommerce-payment-gateway-for-tosspayments' );
 		}
 
-		// Determine if this is a partial or full refund.
+		// Determine refund amount.
 		$order_total = floatval( $order->get_total() );
-		$refund_amount = null !== $amount ? floatval( $amount ) : $order_total;
-		$is_full_refund = ( abs( $refund_amount - $order_total ) < 0.01 );
+		$refund_amount = null !== $amount ? floatval( $amount ) : $balance_amount;
 
-		$this->log( 
-			sprintf( 
-				'Processing %s refund for order #%s. Amount: %s (Order Total: %s), Reason: %s, Payment Key: %s',
-				$is_full_refund ? 'FULL' : 'PARTIAL',
-				$order_id,
+		// Validate refund amount.
+		if ( $refund_amount <= 0 ) {
+			$this->log( 'Refund failed: Invalid refund amount - ' . $refund_amount );
+			return new WP_Error( 'error', __( 'Invalid refund amount.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+		}
+
+		// Check if refund amount exceeds remaining balance (with small tolerance for rounding).
+		if ( $refund_amount > $balance_amount + 0.01 ) {
+			$this->log( sprintf(
+				'Refund failed: Refund amount (%s) exceeds remaining balance (%s)',
 				$refund_amount,
-				$order_total,
-				$reason,
-				$payment_key
-			)
-		);
+				$balance_amount
+			) );
+			return new WP_Error( 'error', sprintf(
+				/* translators: %s: Remaining balance amount */
+				__( 'Refund amount exceeds the remaining cancelable balance of %s.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				wc_price( $balance_amount, array( 'currency' => $order->get_currency() ) )
+			) );
+		}
+
+		// Determine if this will be a full refund (based on remaining balance).
+		$will_be_full_refund = ( abs( $refund_amount - $balance_amount ) < 0.01 );
+
+		// Generate idempotency key based on order ID and refund amount to prevent duplicate refunds.
+		$idempotency_key = 'wc-refund-' . $order_id . '-' . md5( $payment_key . $refund_amount . time() );
+
+		$this->log( sprintf(
+			'Processing %s refund for order #%s. Amount: %s (Balance: %s), Reason: %s',
+			$will_be_full_refund ? 'FULL' : 'PARTIAL',
+			$order_id,
+			$refund_amount,
+			$balance_amount,
+			$reason
+		) );
 
 		// Call TossPayments API to cancel/refund payment.
-		$result = $this->api->cancel_payment( $payment_key, $is_full_refund ? null : $refund_amount, $reason );
+		// For full refund (remaining balance), pass null to cancel all.
+		// For partial refund, pass the specific amount.
+		$cancel_amount = $will_be_full_refund ? null : $refund_amount;
+		$result = $this->api->cancel_payment( $payment_key, $cancel_amount, $reason, $idempotency_key );
 
 		if ( is_wp_error( $result ) ) {
 			$error_message = $result->get_error_message();
@@ -857,7 +976,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 				sprintf(
 					/* translators: 1: Refund amount, 2: Error message */
 					__( 'Refund attempt failed for %1$s. Error: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
-					wc_price( $refund_amount ),
+					wc_price( $refund_amount, array( 'currency' => $order->get_currency() ) ),
 					$error_message
 				)
 			);
@@ -866,17 +985,26 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		}
 
 		// Success! Add order note.
-		$this->log( 'Refund successful for order #' . $order_id );
+		$this->log( sprintf(
+			'Refund successful for order #%s. Type: %s, Amount: %s',
+			$order_id,
+			$will_be_full_refund ? 'FULL' : 'PARTIAL',
+			$refund_amount
+		) );
 		
 		$order->add_order_note(
 			sprintf(
 				/* translators: 1: Refund type, 2: Refund amount, 3: Reason */
 				__( '%1$s refund of %2$s processed successfully via TossPayments. Reason: %3$s', 'seoulcommerce-payment-gateway-for-tosspayments' ),
-				$is_full_refund ? __( 'Full', 'seoulcommerce-payment-gateway-for-tosspayments' ) : __( 'Partial', 'seoulcommerce-payment-gateway-for-tosspayments' ),
-				wc_price( $refund_amount ),
+				$will_be_full_refund ? __( 'Full', 'seoulcommerce-payment-gateway-for-tosspayments' ) : __( 'Partial', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				wc_price( $refund_amount, array( 'currency' => $order->get_currency() ) ),
 				$reason
 			)
 		);
+
+		// Store refund metadata to help track webhook events.
+		$order->update_meta_data( '_tosspayments_last_refund_time', time() );
+		$order->save();
 
 		return true;
 	}
