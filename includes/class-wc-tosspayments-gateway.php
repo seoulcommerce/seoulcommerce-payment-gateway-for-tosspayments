@@ -738,12 +738,12 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 				continue;
 			}
 
-			$transaction_key = $cancel['transactionKey'];
-			$cancel_amount = isset( $cancel['cancelAmount'] ) ? floatval( $cancel['cancelAmount'] ) : 0;
-			$cancel_reason = isset( $cancel['cancelReason'] ) ? sanitize_text_field( $cancel['cancelReason'] ) : '';
+		$transaction_key = $cancel['transactionKey'];
+		$cancel_amount = isset( $cancel['cancelAmount'] ) ? floatval( $cancel['cancelAmount'] ) : 0;
+		$cancel_reason = isset( $cancel['cancelReason'] ) ? sanitize_text_field( $cancel['cancelReason'] ) : '';
 
-			// Skip if we already know about this cancel (we initiated it from admin).
-			if ( in_array( $transaction_key, $known_cancel_keys, true ) ) {
+		// Skip if we already know about this cancel (we initiated it from admin).
+		if ( in_array( $transaction_key, $known_cancel_keys, true ) ) {
 				$this->log( sprintf(
 					'Skipping cancel transactionKey=%s (initiated by admin)',
 					$transaction_key

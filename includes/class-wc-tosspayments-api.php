@@ -81,13 +81,21 @@ class SeoulCommerce_TPG_API {
 			$request_args['body'] = wp_json_encode( $args );
 		}
 
-		// Log request without sensitive data.
-		$log_args = $args;
-		if ( isset( $log_args['paymentKey'] ) ) {
-			$log_args['paymentKey'] = substr( $log_args['paymentKey'], 0, 10 ) . '...';
-		}
-		$this->gateway->log( 'API Request: ' . $method . ' ' . $endpoint );
-		$this->gateway->log( 'Request Args: ' . wp_json_encode( $log_args ) );
+	// Log request without sensitive data.
+	$log_args = $args;
+	if ( isset( $log_args['paymentKey'] ) ) {
+		$log_args['paymentKey'] = substr( $log_args['paymentKey'], 0, 10 ) . '...';
+	}
+	// Truncate payment keys in endpoint URLs.
+	$log_endpoint = preg_replace_callback(
+		'/\/payments\/([A-Za-z0-9_-]{11,})/',
+		function( $matches ) {
+			return '/payments/' . substr( $matches[1], 0, 10 ) . '...';
+		},
+		$endpoint
+	);
+	$this->gateway->log( 'API Request: ' . $method . ' ' . $log_endpoint );
+	$this->gateway->log( 'Request Args: ' . wp_json_encode( $log_args ) );
 
 		$response = wp_remote_request( $url, $request_args );
 

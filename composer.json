@@ -13,6 +13,9 @@
 		"php": ">=7.4"
 	},
 	"require-dev": {
+		"wp-coding-standards/wpcs": "^3.0",
+		"phpcompatibility/phpcompatibility-wp": "*",
+		"woocommerce/woocommerce-sniffs": "^2.0",
 		"phpunit/phpunit": "^9.6",
 		"mockery/mockery": "^1.5"
 	},
@@ -22,6 +25,13 @@
 		}
 	},
 	"scripts": {
+		"phpcs": "phpcs",
+		"phpcbf": "phpcbf",
 		"test": "phpunit"
+	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
 	}
 }
