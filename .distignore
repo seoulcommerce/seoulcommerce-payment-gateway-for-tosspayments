@@ -27,3 +27,4 @@ phpunit.xml
 .phpunit.result.cache
 vendor/
 REFUND_TEST_PLAN.md
+MUTATION_TEST_RESULTS.md
