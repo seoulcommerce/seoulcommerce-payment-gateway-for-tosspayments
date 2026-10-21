@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.3] - Unreleased
 
 ### Fixed
+- Locally cancelled, refunded, or failed orders are never restored to paid by a delayed DONE webhook or return URL. Unpaid terminal orders trigger an automatic TossPayments cancel of the late capture.
+- `PAYMENT_STATUS_CHANGED` is dispatched from the verified TossPayments payment status, not the event name.
+- Confirm uses the server-stored order total (not the `successUrl` query amount) and a deterministic `Idempotency-Key`. Timeouts and `ALREADY_PROCESSED_PAYMENT` are recovered via `GET /v1/payments/{paymentKey}`.
 - Refund amount validation now uses TossPayments' actual `balanceAmount` instead of comparing against order total.
 - Multiple partial refunds that sum to the total now work correctly by using already-refunded amount in idempotency key.
 - Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
@@ -17,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Partial refunds now maintain the order in its paid status (processing/completed) as expected.
 
 ### Added
+- Optional secret-key storage via `SEOULCOMMERCE_TPG_SECRET_KEY_TEST` / `SEOULCOMMERCE_TPG_SECRET_KEY_LIVE` constants or environment variables (takes precedence over WooCommerce settings).
 - Deterministic idempotency keys for refunds prevent accidental duplicate processing (based on order ID, payment key, amount, and already-refunded total).
+- Deterministic idempotency keys for payment confirmation (`wc-confirm-{orderId}-{md5(paymentKey)}`).
 - Transaction key tracking: admin refunds store their `transactionKey` to distinguish from dashboard cancels in webhooks.
 - Webhook deduplication via `tosspayments-webhook-transmission-id` header (stores last 100 IDs).
 - Dashboard cancels now create WooCommerce refund records (`wc_create_refund`) for accurate order totals and reports.
@@ -73,4 +78,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Dismissible with per-user memory
   - Affiliate tracking via UTM parameters (seoulwd agency code)
   - Responsive design with benefits list and prominent CTA
-
