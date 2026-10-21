@@ -53,9 +53,12 @@ final class SeoulCommerce_TPG_Blocks_Payment_Method extends AbstractPaymentMetho
 		$client_key = $testmode 
 			? ( isset( $this->settings['client_key_test'] ) ? $this->settings['client_key_test'] : '' )
 			: ( isset( $this->settings['client_key_live'] ) ? $this->settings['client_key_live'] : '' );
-		$secret_key = $testmode 
+		$db_secret  = $testmode
 			? ( isset( $this->settings['secret_key_test'] ) ? $this->settings['secret_key_test'] : '' )
 			: ( isset( $this->settings['secret_key_live'] ) ? $this->settings['secret_key_live'] : '' );
+		$secret_key = class_exists( 'SeoulCommerce_TPG_Gateway' )
+			? SeoulCommerce_TPG_Gateway::resolve_secret_key( $testmode ? 'test' : 'live', $db_secret )
+			: $db_secret;
 		
 		// In test mode, allow without keys. In live mode, require keys.
 		if ( 'yes' === $enabled ) {
