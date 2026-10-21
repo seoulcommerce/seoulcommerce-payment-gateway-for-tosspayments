@@ -1,0 +1,30 @@
+# Development and testing files excluded from WordPress.org package
+.git
+.gitignore
+.github/
+node_modules/
+src/
+package.json
+package-lock.json
+webpack.config.js
+composer.json
+composer.lock
+composer.phar
+compile-translations.py
+deploy-wordpress-org.sh
+build-wordpress-org.sh
+build.sh
+build-*.sh
+quick-build.sh
+*.zip
+*.pdf
+CHANGELOG.md
+README.md
+.DS_Store
+# Test files
+tests/
+phpunit.xml
+.phpunit.result.cache
+vendor/
+REFUND_TEST_PLAN.md
+MUTATION_TEST_RESULTS.md

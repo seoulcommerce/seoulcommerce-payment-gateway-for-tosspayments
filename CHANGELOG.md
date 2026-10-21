@@ -5,6 +5,38 @@ All notable changes to SeoulCommerce TossPayments will be documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - Unreleased
+
+### Fixed
+- Refund amount validation now uses TossPayments' actual `balanceAmount` instead of comparing against order total.
+- Multiple partial refunds that sum to the total now work correctly by using already-refunded amount in idempotency key.
+- Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
+- Refunds that exceed the remaining cancelable balance now fail with a clear error message.
+- Payment keys are now properly URL-encoded in API endpoint paths.
+- Full refunds now properly set order status to 'refunded' instead of 'cancelled'.
+- Partial refunds now maintain the order in its paid status (processing/completed) as expected.
+
+### Added
+- Deterministic idempotency keys for refunds prevent accidental duplicate processing (based on order ID, payment key, amount, and already-refunded total).
+- Transaction key tracking: admin refunds store their `transactionKey` to distinguish from dashboard cancels in webhooks.
+- Webhook deduplication via `tosspayments-webhook-transmission-id` header (stores last 100 IDs).
+- Dashboard cancels now create WooCommerce refund records (`wc_create_refund`) for accurate order totals and reports.
+- Webhook reconciliation walks `payment.cancels[]` array to identify dashboard vs admin-initiated cancels.
+- Enhanced error messages for TossPayments API failures based on official error codes (https://docs.tosspayments.com/reference/error-codes):
+  - `NOT_CANCELABLE_AMOUNT` - Exceeds remaining balance
+  - `ALREADY_CANCELED_PAYMENT` - Payment fully canceled
+  - `NOT_FOUND_PAYMENT` - Invalid payment key
+  - `FORBIDDEN_REQUEST` / `UNAUTHORIZED_KEY` - Auth failures, IP allowlist issues
+- Comprehensive PHPUnit test suite (12 tests, 39 assertions) covering idempotency, validation, webhook logic, and error handling.
+- GitHub Actions CI workflow running lint and tests on PHP 7.4 and 8.3.
+
+### Improved
+- Enhanced API request/response logging that redacts sensitive data (secret keys truncated, card numbers removed, payment keys shortened).
+- Webhook cancellation events from TossPayments merchant dashboard are now properly reconciled with WooCommerce order status.
+- Partial cancellation webhooks no longer incorrectly flip order status to 'cancelled'.
+- Full cancellation webhooks now set order to 'refunded' status appropriately.
+- Order notes now clearly distinguish between full and partial refunds with amount details.
+
 ## [1.0.2] - 2026-08-28
 
 ### Security

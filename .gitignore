@@ -11,3 +11,8 @@ quick-build.sh
 build-wordpress-org.sh
 
 node_modules
+
+# Test artifacts
+vendor/
+.phpunit.result.cache
+composer.phar

@@ -32,12 +32,15 @@ fi
 RSYNC_EXCLUDES=(
   --exclude '.git'
   --exclude '.gitignore'
+  --exclude '.github'
   --exclude 'node_modules'
   --exclude 'src'
   --exclude 'package.json'
   --exclude 'package-lock.json'
   --exclude 'webpack.config.js'
   --exclude 'composer.json'
+  --exclude 'composer.lock'
+  --exclude 'composer.phar'
   --exclude 'compile-translations.py'
   --exclude 'deploy-wordpress-org.sh'
   --exclude 'build-wordpress-org.sh'
@@ -49,6 +52,12 @@ RSYNC_EXCLUDES=(
   --exclude 'CHANGELOG.md'
   --exclude 'README.md'
   --exclude '.DS_Store'
+  --exclude 'tests'
+  --exclude 'phpunit.xml'
+  --exclude '.phpunit.result.cache'
+  --exclude 'vendor'
+  --exclude 'REFUND_TEST_PLAN.md'
+  --exclude 'MUTATION_TEST_RESULTS.md'
 )
 
 rsync -a --delete "${RSYNC_EXCLUDES[@]}" \
