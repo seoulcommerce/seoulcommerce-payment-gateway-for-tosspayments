@@ -129,7 +129,23 @@ Yes, this plugin is fully compatible with WooCommerce checkout blocks and follow
 
 = Can I process refunds? =
 
-Yes, the plugin supports full and partial refunds through the WooCommerce order management interface.
+Yes, the plugin supports full and partial refunds through the WooCommerce order management interface. Partial cancellations keep the order in a paid status. Full cancellations set the order to refunded. Version 1.0.2 incorrectly mapped both CANCELED and PARTIAL_CANCELED to cancelled; use 1.0.3 or later.
+
+= Which WordPress / WooCommerce / PHP versions are supported? =
+
+Minimum: WordPress 6.0, WooCommerce 8.0, PHP 7.4. GitHub Actions tests PHP 7.4 and 8.3. HPOS may be enabled or disabled. WordPress 7.x / WooCommerce 11.x are not in the automated matrix; see the GitHub README compatibility section.
+
+= How are cancelled orders protected from a late paid webhook? =
+
+Orders in cancelled, refunded, failed, or trash are never restored to paid. The plugin re-queries TossPayments instead of trusting the webhook body. If TossPayments still reports DONE for an unpaid cancelled order, the plugin leaves WooCommerce unchanged and attempts to cancel that capture.
+
+= Are TossPayments idempotency keys used? =
+
+Yes. Confirm and cancel/refund requests send an Idempotency-Key header. If confirm times out, the plugin looks up GET /v1/payments/{paymentKey} before treating the payment as failed.
+
+= Where are secret keys stored? =
+
+By default in the WooCommerce settings option (wp_options), which is included in database backups. They are not stored in order meta or sent to the browser. You can instead set SEOULCOMMERCE_TPG_SECRET_KEY_TEST and SEOULCOMMERCE_TPG_SECRET_KEY_LIVE in wp-config.php or as environment variables. Debug logs redact secret-key patterns and never log the Authorization header.
 
 = Screenshots =
 
@@ -142,6 +158,10 @@ Yes, the plugin supports full and partial refunds through the WooCommerce order 
 == Changelog ==
 
 = 1.0.3 - Unreleased =
+* **FIXED**: Locally cancelled, refunded, or failed orders are never restored to paid by a delayed DONE webhook or return URL.
+* **FIXED**: PAYMENT_STATUS_CHANGED is now dispatched from the verified TossPayments payment status, not the event name.
+* **FIXED**: Confirm uses the server-stored order total and a deterministic Idempotency-Key; timeouts and ALREADY_PROCESSED_PAYMENT are recovered via payment lookup.
+* **ADDED**: Optional wp-config.php / environment secret keys (SEOULCOMMERCE_TPG_SECRET_KEY_TEST and SEOULCOMMERCE_TPG_SECRET_KEY_LIVE) so secrets can stay out of wp_options.
 * **FIXED**: Refund amount validation now uses TossPayments' actual balanceAmount instead of comparing against order total.
 * **FIXED**: Multiple partial refunds that sum to the total now work correctly by using already-refunded amount in idempotency key.
 * **FIXED**: Webhook handlers for TossPayments cancellations no longer incorrectly change order status or create duplicate refunds.
