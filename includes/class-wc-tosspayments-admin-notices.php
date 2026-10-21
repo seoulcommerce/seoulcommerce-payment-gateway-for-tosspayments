@@ -39,10 +39,16 @@ class SeoulCommerce_TPG_Admin_Notices {
 			return false;
 		}
 
-		// Check if API keys are already configured.
+		// Check if API keys are already configured (settings, constants, or environment).
 		$gateway_settings = get_option( 'woocommerce_tosspayments_settings', array() );
-		$has_test_keys = ! empty( $gateway_settings['client_key_test'] ) && ! empty( $gateway_settings['secret_key_test'] );
-		$has_live_keys = ! empty( $gateway_settings['client_key_live'] ) && ! empty( $gateway_settings['secret_key_live'] );
+		$test_secret      = class_exists( 'SeoulCommerce_TPG_Gateway' )
+			? SeoulCommerce_TPG_Gateway::resolve_secret_key( 'test', isset( $gateway_settings['secret_key_test'] ) ? $gateway_settings['secret_key_test'] : '' )
+			: ( isset( $gateway_settings['secret_key_test'] ) ? $gateway_settings['secret_key_test'] : '' );
+		$live_secret      = class_exists( 'SeoulCommerce_TPG_Gateway' )
+			? SeoulCommerce_TPG_Gateway::resolve_secret_key( 'live', isset( $gateway_settings['secret_key_live'] ) ? $gateway_settings['secret_key_live'] : '' )
+			: ( isset( $gateway_settings['secret_key_live'] ) ? $gateway_settings['secret_key_live'] : '' );
+		$has_test_keys    = ! empty( $gateway_settings['client_key_test'] ) && ! empty( $test_secret );
+		$has_live_keys    = ! empty( $gateway_settings['client_key_live'] ) && ! empty( $live_secret );
 
 		// If they have keys, assume they're already signed up.
 		if ( $has_test_keys || $has_live_keys ) {
