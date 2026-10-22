@@ -40,6 +40,7 @@ class FakeOrder {
 	public $status = 'processing';
 	public $payment_method = 'tosspayments';
 	public $total_refunded = 0;
+	public $date_paid = null;
 
 	public function __construct( $id, $total, $transaction_id = '' ) {
 		$this->id = $id;
@@ -57,6 +58,37 @@ class FakeOrder {
 
 	public function get_transaction_id() {
 		return $this->transaction_id;
+	}
+
+	public function get_order_number() {
+		return (string) $this->id;
+	}
+
+	public function get_status() {
+		return $this->status;
+	}
+
+	public function is_paid() {
+		if ( false === $this->date_paid ) {
+			return false;
+		}
+		if ( $this->date_paid ) {
+			return true;
+		}
+		return in_array( $this->status, array( 'processing', 'completed' ), true );
+	}
+
+	public function payment_complete( $transaction_id = '' ) {
+		if ( $transaction_id ) {
+			$this->transaction_id = $transaction_id;
+		}
+		$this->date_paid = true;
+		$this->status    = 'processing';
+		return true;
+	}
+
+	public function set_date_paid( $date ) {
+		$this->date_paid = $date;
 	}
 
 	public function get_currency() {
@@ -182,7 +214,7 @@ if ( ! function_exists( 'add_action' ) ) {
 }
 
 if ( ! function_exists( 'apply_filters' ) ) {
-	function apply_filters( $hook, $value ) {
+	function apply_filters( $hook, $value, ...$args ) { // phpcs:ignore Generic.CodeAnalysis.UnusedFunctionParameter.FoundAfterLastUsed
 		return $value;
 	}
 }

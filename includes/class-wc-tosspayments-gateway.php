@@ -179,7 +179,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			'secret_key_test' => array(
 				'title'       => __( 'Test Secret Key', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'type'        => 'password',
-				'description' => __( 'Get your API keys from your TossPayments account.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				'description' => __( 'Server-only secret key. Optional: set SEOULCOMMERCE_TPG_SECRET_KEY_TEST in wp-config.php or as an environment variable instead of storing it in the database.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'default'     => '',
 				'desc_tip'    => true,
 			),
@@ -193,7 +193,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			'secret_key_live' => array(
 				'title'       => __( 'Live Secret Key', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'type'        => 'password',
-				'description' => __( 'Get your API keys from your TossPayments account.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+				'description' => __( 'Server-only secret key. Optional: set SEOULCOMMERCE_TPG_SECRET_KEY_LIVE in wp-config.php or as an environment variable instead of storing it in the database.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
 				'default'     => '',
 				'desc_tip'    => true,
 			),
@@ -223,10 +223,41 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	/**
 	 * Get secret key based on test mode.
 	 *
+	 * Resolution order: wp-config constant, environment variable, then WooCommerce settings.
+	 *
 	 * @return string
 	 */
 	public function get_secret_key() {
-		return $this->testmode ? $this->secret_key_test : $this->secret_key_live;
+		$mode     = $this->testmode ? 'test' : 'live';
+		$db_value = $this->testmode ? $this->secret_key_test : $this->secret_key_live;
+		return self::resolve_secret_key( $mode, $db_value );
+	}
+
+	/**
+	 * Resolve a secret key from constant, environment, then database.
+	 *
+	 * @param string $mode     'test' or 'live'.
+	 * @param string $db_value Value stored in WooCommerce settings.
+	 * @return string
+	 */
+	public static function resolve_secret_key( $mode, $db_value = '' ) {
+		$suffix   = ( 'test' === $mode ) ? 'TEST' : 'LIVE';
+		$constant = 'SEOULCOMMERCE_TPG_SECRET_KEY_' . $suffix;
+
+		if ( defined( $constant ) && constant( $constant ) ) {
+			$key = (string) constant( $constant );
+		} else {
+			$env = getenv( $constant );
+			$key = ( false !== $env && '' !== $env ) ? (string) $env : (string) $db_value;
+		}
+
+		/**
+		 * Filter the resolved TossPayments secret key.
+		 *
+		 * @param string $key  Resolved secret key.
+		 * @param string $mode 'test' or 'live'.
+		 */
+		return apply_filters( 'seoulcommerce_tpg_secret_key', $key, $mode );
 	}
 
 	/**
@@ -479,7 +510,7 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		$amount      = isset( $_GET['amount'] ) ? floatval( $_GET['amount'] ) : 0; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$order_id_param = isset( $_GET['orderId'] ) ? sanitize_text_field( wp_unslash( $_GET['orderId'] ) ) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
-		// Verify amount matches order total.
+		// Verify amount matches order total. Confirm using the server-stored amount, not the query string.
 		$order_amount = floatval( $order->get_total() );
 		if ( abs( $amount - $order_amount ) > 0.01 ) {
 			$this->log( 'Amount mismatch. Order: ' . $order_amount . ', Payment: ' . $amount );
@@ -488,9 +519,25 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			exit;
 		}
 
-		// Approve payment using sanitized order ID.
 		$tosspayments_order_id = $this->get_tosspayments_order_id( $order_id );
-		$result = $this->api->approve_payment( $payment_key, $tosspayments_order_id, $amount );
+		if ( $order_id_param && $order_id_param !== $tosspayments_order_id ) {
+			$this->log( 'Order ID mismatch. Expected: ' . $tosspayments_order_id . ', Payment: ' . $order_id_param );
+			wc_add_notice( __( 'Payment order ID mismatch. Please contact support.', 'seoulcommerce-payment-gateway-for-tosspayments' ), 'error' );
+			wp_safe_redirect( $order->get_checkout_payment_url() );
+			exit;
+		}
+
+		if ( $this->order_blocks_payment_complete( $order ) ) {
+			$this->log( 'Return ignored: order #' . $order_id . ' is in terminal status ' . $order->get_status() );
+			if ( $this->should_auto_cancel_late_payment( $order ) && $payment_key ) {
+				$this->cancel_unexpected_payment( $order, $payment_key );
+			}
+			wc_add_notice( __( 'This order can no longer be paid because it was cancelled, refunded, or failed.', 'seoulcommerce-payment-gateway-for-tosspayments' ), 'error' );
+			wp_safe_redirect( wc_get_checkout_url() );
+			exit;
+		}
+
+		$result = $this->confirm_payment_for_order( $order, $payment_key, $order_amount );
 
 		if ( is_wp_error( $result ) ) {
 			$this->log( 'Payment approval failed: ' . $result->get_error_message() );
@@ -499,12 +546,13 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			exit;
 		}
 
-	// Payment successful.
-	$order->payment_complete( $payment_key );
-	
-	/* translators: 1: Payment key from TossPayments, 2: TossPayments order ID */
-	$order_note_text = __( 'TossPayments payment approved. Payment Key: %1$s, TossPayments Order ID: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' );
-	$order->add_order_note( sprintf( $order_note_text, $payment_key, $tosspayments_order_id ) );
+		if ( ! $order->is_paid() ) {
+			$order->payment_complete( $payment_key );
+		}
+
+		/* translators: 1: Payment key from TossPayments, 2: TossPayments order ID */
+		$order_note_text = __( 'TossPayments payment approved. Payment Key: %1$s, TossPayments Order ID: %2$s', 'seoulcommerce-payment-gateway-for-tosspayments' );
+		$order->add_order_note( sprintf( $order_note_text, $payment_key, $tosspayments_order_id ) );
 
 		// Clear session.
 		if ( WC()->session ) {
@@ -535,20 +583,60 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		$event_type     = strtoupper( sanitize_text_field( (string) $event_type_raw ) );
 		$this->log( 'Webhook received. eventType=' . $event_type );
 
+		if ( $this->is_duplicate_webhook_transmission() ) {
+			status_header( 200 );
+			exit;
+		}
+
 		// General payment webhooks have no signature header; re-verify via TossPayments API.
+		// https://docs.tosspayments.com/reference/using-api/webhook-events
 		switch ( $event_type ) {
 			case 'PAYMENT_CONFIRMED':
-			case 'PAYMENT_STATUS_CHANGED':
 				$this->handle_payment_confirmed( $data );
 				break;
 			case 'PAYMENT_CANCELED':
 			case 'CANCEL_STATUS_CHANGED':
 				$this->handle_payment_canceled( $data );
 				break;
+			case 'PAYMENT_STATUS_CHANGED':
+				// Event name is not authoritative. Dispatch on the current PG status.
+				$this->dispatch_payment_status_changed( $data );
+				break;
 		}
 
 		status_header( 200 );
 		exit;
+	}
+
+	/**
+	 * Dispatch PAYMENT_STATUS_CHANGED using the verified TossPayments payment status.
+	 *
+	 * @param array $data Sanitized webhook data.
+	 */
+	private function dispatch_payment_status_changed( $data ) {
+		if ( empty( $data['data'] ) || ! is_array( $data['data'] ) || empty( $data['data']['paymentKey'] ) ) {
+			return;
+		}
+
+		$payment_key = sanitize_text_field( (string) $data['data']['paymentKey'] );
+		if ( '' === $payment_key ) {
+			return;
+		}
+
+		$payment = $this->api->get_payment( $payment_key );
+		if ( is_wp_error( $payment ) ) {
+			$this->log( 'Webhook payment verification failed: ' . $payment->get_error_message() );
+			return;
+		}
+
+		$payment_status = isset( $payment['status'] ) ? strtoupper( (string) $payment['status'] ) : '';
+		if ( 'DONE' === $payment_status ) {
+			$this->handle_payment_confirmed( $data, $payment );
+		} elseif ( in_array( $payment_status, array( 'CANCELED', 'PARTIAL_CANCELED' ), true ) ) {
+			$this->handle_payment_canceled( $data, $payment );
+		} else {
+			$this->log( 'Webhook ignored: payment status is ' . $payment_status );
+		}
 	}
 
 	/**
@@ -592,9 +680,10 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	/**
 	 * Handle payment confirmed webhook.
 	 *
-	 * @param array $data Webhook data.
+	 * @param array      $data    Webhook data.
+	 * @param array|null $payment Already-verified payment object, if available.
 	 */
-	private function handle_payment_confirmed( $data ) {
+	private function handle_payment_confirmed( $data, $payment = null ) {
 		if ( empty( $data['data'] ) || ! is_array( $data['data'] ) || empty( $data['data']['paymentKey'] ) ) {
 			return;
 		}
@@ -604,7 +693,9 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
-		$payment = $this->api->get_payment( $payment_key );
+		if ( null === $payment ) {
+			$payment = $this->api->get_payment( $payment_key );
+		}
 		if ( is_wp_error( $payment ) ) {
 			$this->log( 'Webhook payment verification failed: ' . $payment->get_error_message() );
 			return;
@@ -639,6 +730,25 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
+		if ( $this->order_blocks_payment_complete( $order ) ) {
+			$this->log(
+				sprintf(
+					'Webhook ignored: order #%s is in terminal status (%s). PG status is DONE; order was not restored to paid.',
+					$order_id,
+					$order->get_status()
+				)
+			);
+			$order->add_order_note(
+				__( 'TossPayments reported this payment as DONE, but the WooCommerce order is already cancelled, refunded, or failed. The order was not restored to paid.', 'seoulcommerce-payment-gateway-for-tosspayments' )
+			);
+			if ( $this->should_auto_cancel_late_payment( $order ) ) {
+				$this->cancel_unexpected_payment( $order, $payment_key );
+			} else {
+				$order->save();
+			}
+			return;
+		}
+
 		if ( ! $order->is_paid() ) {
 			$order->payment_complete( $payment_key );
 			$order->add_order_note( __( 'Payment confirmed via webhook.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
@@ -648,9 +758,10 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 	/**
 	 * Handle payment canceled webhook.
 	 *
-	 * @param array $data Webhook data.
+	 * @param array      $data    Webhook data.
+	 * @param array|null $payment Already-verified payment object, if available.
 	 */
-	private function handle_payment_canceled( $data ) {
+	private function handle_payment_canceled( $data, $payment = null ) {
 		if ( empty( $data['data'] ) || ! is_array( $data['data'] ) || empty( $data['data']['paymentKey'] ) ) {
 			return;
 		}
@@ -660,26 +771,9 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 			return;
 		}
 
-		// Deduplicate on webhook transmission ID if present.
-		if ( isset( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) ) {
-			$transmission_id = sanitize_text_field( wp_unslash( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) );
-			$processed_transmissions = get_option( 'tosspayments_processed_webhooks', array() );
-			
-			if ( in_array( $transmission_id, $processed_transmissions, true ) ) {
-				$this->log( 'Webhook ignored: already processed transmission ID ' . $transmission_id );
-				return;
-			}
-			
-			// Store transmission ID (keep last 100 to prevent unbounded growth).
-			$processed_transmissions[] = $transmission_id;
-			if ( count( $processed_transmissions ) > 100 ) {
-				$processed_transmissions = array_slice( $processed_transmissions, -100 );
-			}
-			update_option( 'tosspayments_processed_webhooks', $processed_transmissions, false );
+		if ( null === $payment ) {
+			$payment = $this->api->get_payment( $payment_key );
 		}
-
-		// Verify payment status by fetching from TossPayments API.
-		$payment = $this->api->get_payment( $payment_key );
 		if ( is_wp_error( $payment ) ) {
 			$this->log( 'Webhook cancel verification failed: ' . $payment->get_error_message() );
 			return;
@@ -843,6 +937,165 @@ class SeoulCommerce_TPG_Gateway extends WC_Payment_Gateway {
 		}
 
 		$order->save();
+	}
+
+	/**
+	 * Confirm a payment, recovering from timeout or ALREADY_PROCESSED_PAYMENT.
+	 *
+	 * Uses a deterministic Idempotency-Key so retries return the original TossPayments
+	 * response. On timeout, looks up GET /v1/payments/{paymentKey} before treating the
+	 * confirm as failed. Confirm amount is the server-stored order total.
+	 *
+	 * @param WC_Order $order       Order object.
+	 * @param string   $payment_key TossPayments payment key.
+	 * @param float    $amount      Server-stored order amount.
+	 * @return array|WP_Error Payment object on success.
+	 */
+	public function confirm_payment_for_order( $order, $payment_key, $amount ) {
+		$order_id              = $order->get_id();
+		$tosspayments_order_id = $this->get_tosspayments_order_id( $order_id );
+		$idempotency_key       = 'wc-confirm-' . $order_id . '-' . md5( $payment_key );
+
+		$result = $this->api->approve_payment( $payment_key, $tosspayments_order_id, $amount, $idempotency_key );
+
+		if ( ! is_wp_error( $result ) ) {
+			return $result;
+		}
+
+		if ( ! $this->is_recoverable_confirm_error( $result ) ) {
+			return $result;
+		}
+
+		$this->log( 'Confirm returned a recoverable error; looking up payment status: ' . $result->get_error_message() );
+
+		$lookup = $this->api->get_payment( $payment_key );
+		if ( is_wp_error( $lookup ) ) {
+			return $result;
+		}
+
+		$status = isset( $lookup['status'] ) ? strtoupper( (string) $lookup['status'] ) : '';
+		if ( 'DONE' === $status ) {
+			$verified_amount = isset( $lookup['totalAmount'] ) ? floatval( $lookup['totalAmount'] ) : 0;
+			if ( $verified_amount <= 0 || abs( $verified_amount - floatval( $amount ) ) > 0.01 ) {
+				return new WP_Error( 'amount_mismatch', __( 'Payment amount mismatch. Please contact support.', 'seoulcommerce-payment-gateway-for-tosspayments' ) );
+			}
+			return $lookup;
+		}
+
+		if ( 'IN_PROGRESS' === $status ) {
+			// Retry once with the same idempotency key. TossPayments returns the original response.
+			return $this->api->approve_payment( $payment_key, $tosspayments_order_id, $amount, $idempotency_key );
+		}
+
+		return $result;
+	}
+
+	/**
+	 * Whether a confirm error should be recovered via payment lookup or retry.
+	 *
+	 * @param WP_Error $error Confirm error.
+	 * @return bool
+	 */
+	private function is_recoverable_confirm_error( $error ) {
+		if ( ! is_wp_error( $error ) ) {
+			return false;
+		}
+
+		$code = $error->get_error_code();
+		if ( in_array( $code, array( 'http_request_failed', 'http_request_timeout' ), true ) ) {
+			return true;
+		}
+
+		$data     = $error->get_error_data();
+		$api_code = ( is_array( $data ) && isset( $data['code'] ) ) ? $data['code'] : '';
+		return in_array( $api_code, array( 'ALREADY_PROCESSED_PAYMENT', 'ALREADY_PROCESSING_REQUEST' ), true );
+	}
+
+	/**
+	 * Whether the order is in a terminal status that must not be restored to paid.
+	 *
+	 * @param WC_Order $order Order object.
+	 * @return bool
+	 */
+	private function order_blocks_payment_complete( $order ) {
+		return $order->has_status( array( 'cancelled', 'refunded', 'failed', 'trash' ) );
+	}
+
+	/**
+	 * Whether a late DONE payment should be canceled at TossPayments.
+	 *
+	 * Only unpaid terminal orders are auto-canceled, so a paid-then-cancelled
+	 * WooCommerce order is not refunded as a side effect.
+	 *
+	 * @param WC_Order $order Order object.
+	 * @return bool
+	 */
+	private function should_auto_cancel_late_payment( $order ) {
+		return $this->order_blocks_payment_complete( $order ) && ! $order->is_paid();
+	}
+
+	/**
+	 * Cancel a payment that completed after the WooCommerce order was already closed.
+	 *
+	 * @param WC_Order $order       Order object.
+	 * @param string   $payment_key TossPayments payment key.
+	 */
+	private function cancel_unexpected_payment( $order, $payment_key ) {
+		$order_id        = $order->get_id();
+		$idempotency_key = 'wc-late-cancel-' . $order_id . '-' . md5( $payment_key );
+		$reason          = sprintf(
+			/* translators: %s: WooCommerce order ID */
+			__( 'WooCommerce order #%s was already cancelled, refunded, or failed.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+			$order_id
+		);
+
+		$result = $this->api->cancel_payment( $payment_key, null, $reason, $idempotency_key );
+		if ( is_wp_error( $result ) ) {
+			$this->log( 'Failed to auto-cancel payment for terminal order #' . $order_id . ': ' . $result->get_error_message() );
+			$order->add_order_note(
+				sprintf(
+					/* translators: %s: Error message */
+					__( 'Attempted to cancel the late TossPayments capture because this order is no longer payable. Automatic cancel failed: %s. Refund the payment in the TossPayments dashboard if it remains DONE.', 'seoulcommerce-payment-gateway-for-tosspayments' ),
+					$result->get_error_message()
+				)
+			);
+		} else {
+			$order->add_order_note(
+				__( 'Late TossPayments capture was automatically canceled because this WooCommerce order is already cancelled, refunded, or failed.', 'seoulcommerce-payment-gateway-for-tosspayments' )
+			);
+		}
+
+		$order->save();
+	}
+
+	/**
+	 * Deduplicate webhook deliveries using tosspayments-webhook-transmission-id.
+	 *
+	 * @return bool True when this transmission was already processed.
+	 */
+	private function is_duplicate_webhook_transmission() {
+		if ( ! isset( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) ) {
+			return false;
+		}
+
+		$transmission_id         = sanitize_text_field( wp_unslash( $_SERVER['HTTP_TOSSPAYMENTS_WEBHOOK_TRANSMISSION_ID'] ) );
+		$processed_transmissions = get_option( 'tosspayments_processed_webhooks', array() );
+		if ( ! is_array( $processed_transmissions ) ) {
+			$processed_transmissions = array();
+		}
+
+		if ( in_array( $transmission_id, $processed_transmissions, true ) ) {
+			$this->log( 'Webhook ignored: already processed transmission ID ' . $transmission_id );
+			return true;
+		}
+
+		$processed_transmissions[] = $transmission_id;
+		if ( count( $processed_transmissions ) > 100 ) {
+			$processed_transmissions = array_slice( $processed_transmissions, -100 );
+		}
+		update_option( 'tosspayments_processed_webhooks', $processed_transmissions, false );
+
+		return false;
 	}
 
 	/**

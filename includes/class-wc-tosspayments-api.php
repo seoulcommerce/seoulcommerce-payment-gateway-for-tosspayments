@@ -95,7 +95,7 @@ class SeoulCommerce_TPG_API {
 		$endpoint
 	);
 	$this->gateway->log( 'API Request: ' . $method . ' ' . $log_endpoint );
-	$this->gateway->log( 'Request Args: ' . wp_json_encode( $log_args ) );
+	$this->gateway->log( 'Request Args: ' . $this->redact_secrets_for_log( wp_json_encode( $log_args ) ) );
 
 		$response = wp_remote_request( $url, $request_args );
 
@@ -123,7 +123,7 @@ class SeoulCommerce_TPG_API {
 				}
 			}
 		}
-		$this->gateway->log( 'API Response: ' . wp_json_encode( $log_data ) );
+		$this->gateway->log( 'API Response: ' . $this->redact_secrets_for_log( wp_json_encode( $log_data ) ) );
 
 		if ( 200 !== $code ) {
 			$error_code = isset( $data['code'] ) ? $data['code'] : 'UNKNOWN_ERROR';
@@ -135,6 +135,8 @@ class SeoulCommerce_TPG_API {
 				$error_message = __( 'The refund amount exceeds the remaining cancelable balance.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			} elseif ( 'ALREADY_CANCELED_PAYMENT' === $error_code ) {
 				$error_message = __( 'This payment has already been fully canceled.', 'seoulcommerce-payment-gateway-for-tosspayments' );
+			} elseif ( 'ALREADY_PROCESSED_PAYMENT' === $error_code ) {
+				$error_message = __( 'This payment has already been processed.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			} elseif ( 'NOT_FOUND_PAYMENT' === $error_code ) {
 				$error_message = __( 'Payment not found. The payment key may be invalid.', 'seoulcommerce-payment-gateway-for-tosspayments' );
 			} elseif ( in_array( $error_code, array( 'FORBIDDEN_REQUEST', 'UNAUTHORIZED_KEY' ), true ) ) {
@@ -153,9 +155,10 @@ class SeoulCommerce_TPG_API {
 	 * @param string $payment_key Payment key from TossPayments.
 	 * @param string $order_id Order ID.
 	 * @param float  $amount Payment amount.
+	 * @param string $idempotency_key Idempotency key (optional).
 	 * @return array|WP_Error
 	 */
-	public function approve_payment( $payment_key, $order_id, $amount ) {
+	public function approve_payment( $payment_key, $order_id, $amount, $idempotency_key = '' ) {
 		$endpoint = '/payments/confirm';
 
 		$args = array(
@@ -164,7 +167,27 @@ class SeoulCommerce_TPG_API {
 			'amount'     => intval( $amount ),
 		);
 
-		return $this->request( $endpoint, $args );
+		$extra_headers = array();
+		if ( ! empty( $idempotency_key ) ) {
+			$extra_headers['Idempotency-Key'] = $idempotency_key;
+		}
+
+		return $this->request( $endpoint, $args, 'POST', $extra_headers );
+	}
+
+	/**
+	 * Strip secret-key patterns from a log string.
+	 *
+	 * @param string $value Raw log string.
+	 * @return string
+	 */
+	private function redact_secrets_for_log( $value ) {
+		if ( ! is_string( $value ) || '' === $value ) {
+			return $value;
+		}
+
+		$redacted = preg_replace( '/\b(test|live)_g?sk_[A-Za-z0-9]+/', '$1_sk_[REDACTED]', $value );
+		return is_string( $redacted ) ? $redacted : $value;
 	}
 
 	/**
